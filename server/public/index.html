@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RustDesk Control Panel</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <header class="header">
+            <div class="header-content">
+                <div class="logo">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <rect x="2" y="3" width="20" height="14" rx="2" stroke="currentColor" stroke-width="2"/>
+                        <path d="M8 21H16M12 17V21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                    <h1>Device Management</h1>
+                </div>
+                <div class="status-badge">
+                    <span class="dot pulse"></span>
+                    <span id="device-count">0 Online</span>
+                </div>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <div class="search-bar">
+                <input type="text" id="search-input" placeholder="Tìm kiếm theo Hostname hoặc ID...">
+                <button id="refresh-btn" class="btn-icon" title="Làm mới">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 12a9 9 0 11-9-9c2.52 0 4.93 1 6.74 2.74L21 8M21 3v5h-5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="table-container">
+                <table class="devices-table">
+                    <thead>
+                        <tr>
+                            <th>Status</th>
+                            <th>Hostname</th>
+                            <th>RustDesk ID</th>
+                            <th>Mật khẩu</th>
+                            <th>Last Seen</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="device-list">
+                        <!-- Items will be injected here by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </main>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="toast">Đã sao chép vào bộ nhớ tạm!</div>
+
+    <script src="app.js"></script>
+</body>
+</html>
