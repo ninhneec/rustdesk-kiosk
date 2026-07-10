@@ -631,7 +631,7 @@ pub async fn start_server(is_server: bool, no_server: bool) {
                         .send()
                         .await;
                 }
-                hbb_common::sleep(30.0).await;
+                hbb_common::sleep(30.0_f32).await;
             }
         });
         // [/CUSTOM KIOSK MODE]
