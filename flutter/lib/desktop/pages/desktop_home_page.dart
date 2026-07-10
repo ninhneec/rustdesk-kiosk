@@ -93,6 +93,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
       buildTip(context),
       if (!isOutgoingOnly) buildIDBoard(context),
       if (!isOutgoingOnly) buildPasswordBoard(context),
+      if (!isOutgoingOnly) buildChatButton(context),
       FutureBuilder<Widget>(
         future: Future.value(
             Obx(() => buildHelpCards(stateGlobal.updateUrl.value))),
@@ -384,6 +385,38 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget buildChatButton(BuildContext context) {
+    return Container(
+      margin: EdgeInsets.only(left: 20.0, right: 16, top: 10, bottom: 10),
+      child: SizedBox(
+        width: double.infinity,
+        height: 45,
+        child: ElevatedButton.icon(
+          icon: Icon(Icons.support_agent, color: Colors.white),
+          label: Text(
+            'Hỗ Trợ (Chat)',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+          ),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Color(0xFF4A3AFF),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+          onPressed: () {
+            final id = gFFI.serverModel.serverId.text;
+            if (Platform.isWindows) {
+              Process.run('msedge.exe', [
+                '-inprivate',
+                '--app=http://18.181.251.3:3000/chat.html?id=$id'
+              ]);
+            }
+          },
+        ),
       ),
     );
   }
