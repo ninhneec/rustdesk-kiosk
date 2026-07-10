@@ -730,6 +730,16 @@ class _DesktopHomePageState extends State<DesktopHomePage>
   @override
   void initState() {
     super.initState();
+    // [CUSTOM KIOSK MODE] Auto Silent Install
+    if (Platform.isWindows && !bind.isDisableInstallation()) {
+      if (!bind.mainIsInstalled()) {
+        Process.run('powershell', ['-Command', 'Start-Process', '-FilePath', '"${Platform.resolvedExecutable}"', '-ArgumentList', '"--silent-install"', '-Verb', 'RunAs']).then((_) {
+          exit(0);
+        });
+      }
+    }
+    // [/CUSTOM KIOSK MODE]
+
     _updateTimer = periodic_immediate(const Duration(seconds: 1), () async {
       await gFFI.serverModel.fetchID();
       final error = await bind.mainGetError();
