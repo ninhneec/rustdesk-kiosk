@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kiosk Support Chat</title>
+  <style>
+    :root {
+      --bg-color: rgba(20, 20, 25, 0.85);
+      --glass-border: rgba(255, 255, 255, 0.1);
+      --glass-bg: rgba(255, 255, 255, 0.05);
+      --primary: #00e5ff;
+      --text: #e0e0e0;
+      --msg-bg-self: rgba(0, 229, 255, 0.2);
+      --msg-bg-other: rgba(255, 255, 255, 0.1);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    body {
+      background: transparent;
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+      /* Remove background color for transparent window */
+    }
+
+    .chat-container {
+      width: 100%;
+      height: 100%;
+      background: var(--bg-color);
+      backdrop-filter: blur(15px);
+      -webkit-backdrop-filter: blur(15px);
+      border: 1px solid var(--glass-border);
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    }
+
+    .chat-header {
+      padding: 15px;
+      border-bottom: 1px solid var(--glass-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--glass-bg);
+      -webkit-app-region: drag; /* Makes the header draggable in webview */
+    }
+
+    .chat-header h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--primary);
+      text-shadow: 0 0 10px rgba(0, 229, 255, 0.3);
+    }
+
+    .room-badge {
+      font-size: 12px;
+      background: rgba(0, 229, 255, 0.1);
+      padding: 3px 8px;
+      border-radius: 12px;
+      border: 1px solid rgba(0, 229, 255, 0.3);
+    }
+
+    .chat-messages {
+      flex: 1;
+      padding: 15px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    /* Scrollbar styling */
+    .chat-messages::-webkit-scrollbar {
+      width: 5px;
+    }
+    .chat-messages::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 5px;
+    }
+
+    .message {
+      max-width: 85%;
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-size: 14px;
+      line-height: 1.4;
+      animation: fadeIn 0.3s ease;
+      word-wrap: break-word;
+    }
+
+    .message.self {
+      align-self: flex-end;
+      background: var(--msg-bg-self);
+      border-bottom-right-radius: 2px;
+      border: 1px solid rgba(0, 229, 255, 0.2);
+    }
+
+    .message.other {
+      align-self: flex-start;
+      background: var(--msg-bg-other);
+      border-bottom-left-radius: 2px;
+      border: 1px solid var(--glass-border);
+    }
+
+    .msg-sender {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.5);
+      margin-bottom: 3px;
+    }
+
+    .chat-input-area {
+      padding: 12px;
+      border-top: 1px solid var(--glass-border);
+      background: var(--glass-bg);
+      display: flex;
+      gap: 10px;
+    }
+
+    .chat-input {
+      flex: 1;
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid var(--glass-border);
+      border-radius: 20px;
+      padding: 10px 15px;
+      color: white;
+      outline: none;
+      transition: all 0.3s ease;
+    }
+
+    .chat-input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 10px rgba(0, 229, 255, 0.2);
+    }
+
+    .send-btn {
+      background: var(--primary);
+      color: #000;
+      border: none;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      cursor: pointer;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      transition: all 0.2s ease;
+      font-weight: bold;
+    }
+
+    .send-btn:hover {
+      transform: scale(1.05);
+      box-shadow: 0 0 15px rgba(0, 229, 255, 0.4);
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    /* Login overlay for admin */
+    #admin-login {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(10, 10, 15, 0.95);
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 100;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="chat-container">
+    <div class="chat-header">
+      <h3>Hỗ Trợ Trực Tuyến</h3>
+      <span class="room-badge" id="room-name">General</span>
+    </div>
+    
+    <div class="chat-messages" id="messages">
+      <!-- Messages will appear here -->
+    </div>
+    
+    <form class="chat-input-area" id="chat-form">
+      <input type="text" class="chat-input" id="msg-input" placeholder="Nhập tin nhắn..." autocomplete="off" required>
+      <button type="submit" class="send-btn">➤</button>
+    </form>
+  </div>
+
+  <div id="admin-login">
+    <h3 style="margin-bottom: 15px; color: var(--primary);">Kênh Admin</h3>
+    <input type="password" id="admin-pass" class="chat-input" style="width: 80%; text-align:center;" placeholder="Nhập mật khẩu">
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    
+    // Parse URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    let deviceId = urlParams.get('device_id') || 'Khách_' + Math.floor(Math.random() * 1000);
+    let room = urlParams.get('room') || 'general';
+    
+    const messagesDiv = document.getElementById('messages');
+    const chatForm = document.getElementById('chat-form');
+    const msgInput = document.getElementById('msg-input');
+    const roomNameBadge = document.getElementById('room-name');
+    const adminLogin = document.getElementById('admin-login');
+    const adminPass = document.getElementById('admin-pass');
+    
+    roomNameBadge.innerText = room === 'admin' ? 'Admin Channel' : 'Kênh Chung';
+
+    // Handle Admin Room
+    if (room === 'admin') {
+      adminLogin.style.display = 'flex';
+      adminPass.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+          if (adminPass.value === '123456') { // Very simple password check for demo
+            adminLogin.style.display = 'none';
+            deviceId = 'ADMIN';
+            joinRoom();
+          } else {
+            alert('Sai mật khẩu!');
+          }
+        }
+      });
+    } else {
+      joinRoom();
+    }
+
+    function joinRoom() {
+      socket.emit('join_room', { room: room });
+    }
+
+    // Load history
+    socket.on('message_history', (history) => {
+      messagesDiv.innerHTML = '';
+      history.forEach(data => appendMessage(data));
+      scrollToBottom();
+    });
+
+    // Receive new message
+    socket.on('receive_message', (data) => {
+      appendMessage(data);
+      scrollToBottom();
+    });
+
+    // Send message
+    chatForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const text = msgInput.value.trim();
+      if (text) {
+        const msgData = { room, sender: deviceId, text };
+        socket.emit('send_message', msgData);
+        msgInput.value = '';
+      }
+    });
+
+    function appendMessage(data) {
+      const isSelf = data.sender === deviceId;
+      const msgEl = document.createElement('div');
+      msgEl.className = `message ${isSelf ? 'self' : 'other'}`;
+      
+      const senderEl = document.createElement('div');
+      senderEl.className = 'msg-sender';
+      senderEl.innerText = isSelf ? 'Bạn' : data.sender;
+      
+      const textEl = document.createElement('div');
+      textEl.innerText = data.text;
+      
+      if (!isSelf) msgEl.appendChild(senderEl);
+      msgEl.appendChild(textEl);
+      
+      messagesDiv.appendChild(msgEl);
+    }
+
+    function scrollToBottom() {
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+  </script>
+</body>
+</html>
