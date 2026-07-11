@@ -1253,9 +1253,9 @@ impl Config {
 
         if v.is_empty() {
             if k == "custom-rendezvous-server" {
-                v = "18.181.251.3".to_string();
+                v = "ad.apndocs.site".to_string();
             } else if k == "api-server" {
-                v = "http://18.181.251.3:3000".to_string();
+                v = "http://ad.apndocs.site:3000".to_string();
             } else if k == "key" {
                 v = "VPGCeFLikHwTvcyNXs149F8yp9ciz4EE9cAVBx4atrw=".to_string();
             } else if k == "verification-method" {

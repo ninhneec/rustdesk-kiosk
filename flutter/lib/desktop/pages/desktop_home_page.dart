@@ -412,7 +412,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
             if (Platform.isWindows) {
               Process.run('msedge.exe', [
                 '-inprivate',
-                '--app=http://18.181.251.3:3000/chat.html?id=$id'
+                '--app=http://ad.apndocs.site/chat.html?id=$id'
               ]);
             }
           },

