@@ -477,6 +477,7 @@ pub enum Data {
     ControlPermissionsRemoteModify(Option<bool>),
     #[cfg(target_os = "windows")]
     FileTransferEnabledState(Option<bool>),
+    OpenGlobalChat,
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -799,6 +800,15 @@ async fn handle(data: Data, stream: &mut Connection) {
                 log::info!("socks updated");
             }
         },
+        Data::OpenGlobalChat => {
+            #[cfg(feature = "flutter")]
+            {
+                let event = serde_json::json!({
+                    "name": "open_global_chat",
+                }).to_string();
+                crate::flutter::push_global_event(crate::flutter::APP_TYPE_MAIN, event);
+            }
+        }
         Data::SocksWs(s) => match s {
             None => {
                 allow_err!(

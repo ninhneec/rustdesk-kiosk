@@ -18,6 +18,7 @@ enum WindowType {
   ViewCamera,
   PortForward,
   Terminal,
+  GlobalChat,
   Unknown
 }
 
@@ -36,6 +37,8 @@ extension Index on int {
         return WindowType.PortForward;
       case 5:
         return WindowType.Terminal;
+      case 6:
+        return WindowType.GlobalChat;
       default:
         return WindowType.Unknown;
     }
@@ -65,6 +68,7 @@ class RustDeskMultiWindowManager {
   final List<int> _viewCameraWindows = List.empty(growable: true);
   final List<int> _portForwardWindows = List.empty(growable: true);
   final List<int> _terminalWindows = List.empty(growable: true);
+  final List<int> _globalChatWindows = List.empty(growable: true);
 
   moveTabToNewWindow(int windowId, String peerId, String sessionId,
       WindowType windowType) async {
@@ -383,6 +387,29 @@ class RustDeskMultiWindowManager {
     return MultiWindowCallResult(windowId, null);
   }
 
+  Future<MultiWindowCallResult> newGlobalChat() async {
+    for (final windowId in _globalChatWindows) {
+      if (_activeWindows.contains(windowId)) {
+        WindowController.fromWindowId(windowId).show();
+        return MultiWindowCallResult(windowId, null);
+      }
+    }
+    
+    var params = {
+      "type": WindowType.GlobalChat.index,
+    };
+    final msg = jsonEncode(params);
+
+    final windowId = await newSessionWindow(
+        WindowType.GlobalChat, "Global Chat", msg, _globalChatWindows, false);
+    
+    // Resize and position to bottom right
+    final windowController = WindowController.fromWindowId(windowId);
+    windowController.setFrame(const Offset(0, 0) & const Size(350, 500));
+    windowController.showTitleBar(false);
+    return MultiWindowCallResult(windowId, null);
+  }
+
   Future<MultiWindowCallResult> call(
       WindowType type, String methodName, dynamic args) async {
     final wnds = _findWindowsByType(type);
@@ -415,6 +442,8 @@ class RustDeskMultiWindowManager {
         return _portForwardWindows;
       case WindowType.Terminal:
         return _terminalWindows;
+      case WindowType.GlobalChat:
+        return _globalChatWindows;
       case WindowType.Unknown:
         break;
     }
@@ -439,6 +468,10 @@ class RustDeskMultiWindowManager {
         break;
       case WindowType.Terminal:
         _terminalWindows.clear();
+        break;
+      case WindowType.GlobalChat:
+        _globalChatWindows.clear();
+        break;
       case WindowType.Unknown:
         break;
     }

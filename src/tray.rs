@@ -183,9 +183,17 @@ fn make_tray() -> hbb_common::ResultType<()> {
         if let Ok(event) = menu_channel.try_recv() {
             // [CUSTOM KIOSK MODE]
             if event.id == support_i.id() {
-                let dev_id = hbb_common::config::Config::get_id();
-                let url = format!("https://chat.mycompany.com/?device_id={}", dev_id);
-                webbrowser::open(&url).ok();
+                let _ = std::thread::spawn(|| {
+                    hbb_common::tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .unwrap()
+                        .block_on(async {
+                            if let Ok(mut c) = crate::ipc::connect(1000, "").await {
+                                let _ = c.send(&crate::ipc::Data::OpenGlobalChat).await;
+                            }
+                        });
+                });
             }
             // [/CUSTOM KIOSK MODE]
             else if let Some(quit_i) = &quit_i {

@@ -15,6 +15,7 @@ import 'package:flutter_hbb/desktop/screen/desktop_view_camera_screen.dart';
 import 'package:flutter_hbb/desktop/screen/desktop_port_forward_screen.dart';
 import 'package:flutter_hbb/desktop/screen/desktop_remote_screen.dart';
 import 'package:flutter_hbb/desktop/screen/desktop_terminal_screen.dart';
+import 'package:flutter_hbb/desktop/screen/desktop_global_chat_screen.dart';
 import 'package:flutter_hbb/desktop/widgets/refresh_wrapper.dart';
 import 'package:flutter_hbb/models/state_model.dart';
 import 'package:flutter_hbb/utils/multi_window_manager.dart';
@@ -99,6 +100,18 @@ Future<void> main(List<String> args) async {
           argument,
           kAppTypeDesktopTerminal,
         );
+        break;
+      case WindowType.GlobalChat:
+        // Set desktop type to main or custom, but since it's just a webview,
+        // we can reuse desktopType = DesktopType.main or create a new one.
+        // Actually, we don't strictly need a new DesktopType if we don't rely on it.
+        // But let's set it to main to avoid assertions.
+        desktopType = DesktopType.main;
+        runMultiWindow(
+          argument,
+          kAppTypeDesktopGlobalChat,
+        );
+        break;
       default:
         break;
     }
@@ -230,6 +243,9 @@ void runMultiWindow(
         params: argument,
       );
       break;
+    case kAppTypeDesktopGlobalChat:
+      widget = const DesktopGlobalChatScreen();
+      break;
     default:
       // no such appType
       exit(0);
@@ -278,6 +294,9 @@ void runMultiWindow(
       break;
     case kAppTypeDesktopTerminal:
       await restoreWindowPosition(WindowType.Terminal, windowId: kWindowId!);
+      break;
+    case kAppTypeDesktopGlobalChat:
+      // Don't restore window position for Global Chat. It handles its own position (bottom-right).
       break;
     default:
       // no such appType
@@ -574,6 +593,12 @@ _registerEventHandler() {
   if (isDesktop) {
     platformFFI.registerEventHandler('native_ui', 'native_ui', (evt) async {
       NativeUiHandler.instance.onEvent(evt);
+    });
+  }
+  
+  if (isDesktop && desktopType == DesktopType.main) {
+    platformFFI.registerEventHandler('open_global_chat', 'open_global_chat', (evt) async {
+      rustDeskWinManager.newGlobalChat();
     });
   }
   if (isAndroid) {
