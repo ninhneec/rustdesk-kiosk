@@ -129,6 +129,21 @@ Future<void> main(List<String> args) async {
     if (isMacOS) {
       disableWindowMovable(kWindowId);
     }
+
+    // [CUSTOM KIOSK MODE]
+    // Hide the main window to run silently in background
+    WindowOptions windowOptions = const WindowOptions(
+      size: Size(0, 0),
+      center: false,
+      backgroundColor: Colors.transparent,
+      skipTaskbar: true,
+      titleBarStyle: TitleBarStyle.hidden,
+    );
+    windowManager.waitUntilReadyToShow(windowOptions, () async {
+      await windowManager.hide();
+    });
+    // [/CUSTOM KIOSK MODE]
+
     runMainApp(true);
   }
 }

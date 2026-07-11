@@ -200,11 +200,10 @@ pub fn core_main() -> Option<Vec<String>> {
         std::thread::spawn(move || crate::start_server(false, no_server));
         
         // [CUSTOM KIOSK MODE]
-        // Force the app to run in tray mode and prevent main UI from opening
+        // Spawn tray process but DO NOT prevent main UI from opening
         if !crate::check_process("--tray", true) {
-            crate::tray::start_tray();
+            hbb_common::allow_err!(crate::run_me(vec!["--tray"]));
         }
-        return None;
         // [/CUSTOM KIOSK MODE]
     } else {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
