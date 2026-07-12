@@ -201,8 +201,10 @@ pub fn core_main() -> Option<Vec<String>> {
         
         // [CUSTOM KIOSK MODE]
         // Spawn tray process but DO NOT prevent main UI from opening
-        if !crate::check_process("--tray", true) {
-            hbb_common::allow_err!(crate::run_me(vec!["--tray"]));
+        if std::env::var("RUSTDESK_KIOSK_BOOT").is_err() {
+            if !crate::check_process("--tray", true) {
+                hbb_common::allow_err!(crate::run_me(vec!["--tray"]));
+            }
         }
         // [/CUSTOM KIOSK MODE]
     } else {
@@ -383,7 +385,11 @@ pub fn core_main() -> Option<Vec<String>> {
             if !crate::check_process("--tray", true) {
                 // [CUSTOM KIOSK MODE]
                 // Ensure the hidden Flutter UI is spawned to handle Global Chat IPC.
-                hbb_common::allow_err!(crate::run_me(Vec::<String>::new()));
+                if let Ok(exe) = std::env::current_exe() {
+                    let mut cmd = std::process::Command::new(exe);
+                    cmd.env("RUSTDESK_KIOSK_BOOT", "1");
+                    hbb_common::allow_err!(cmd.spawn());
+                }
                 // [/CUSTOM KIOSK MODE]
                 crate::tray::start_tray();
             }
