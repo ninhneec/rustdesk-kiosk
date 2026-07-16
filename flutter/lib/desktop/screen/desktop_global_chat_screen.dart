@@ -25,24 +25,16 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen> {
   }
 
   Future<void> _initWebview() async {
-    // Position window at bottom right
-    await windowManager.ensureInitialized();
-    WindowOptions windowOptions = const WindowOptions(
-      size: Size(350, 500),
-      center: false,
-      backgroundColor: Colors.transparent,
-      skipTaskbar: false,
-      titleBarStyle: TitleBarStyle.hidden,
-      alwaysOnTop: true,
-    );
-    await windowManager.waitUntilReadyToShow(windowOptions, () async {
-      final Size screenSize = await windowManager.getBounds().then((b) => b.size);
-      // Try to position it at bottom right. This might require screen size, 
-      // but windowManager.setAlignment(Alignment.bottomRight) works too.
+    // Try to position window at bottom right
+    try {
+      await windowManager.ensureInitialized();
       await windowManager.setAlignment(Alignment.bottomRight);
+      await windowManager.setAlwaysOnTop(true);
       await windowManager.show();
       await windowManager.focus();
-    });
+    } catch (e) {
+      debugPrint("window_manager init error: $e");
+    }
 
     try {
       await _controller.initialize();
