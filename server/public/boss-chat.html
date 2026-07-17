@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Boss chat</title>
+  <link rel="stylesheet" href="chat.css">
+</head>
+<body>
+  <main class="chat-shell"><header><div><h1 id="title">Nhân viên</h1><span id="status">Đang kết nối…</span></div><select id="channel"><option value="boss">Riêng</option><option value="global">Kênh chung</option></select></header><section id="messages" aria-live="polite"></section><form id="composer"><input id="message" maxlength="2000" autocomplete="off" placeholder="Nhập tin nhắn…"><button type="submit">Gửi</button></form></main>
+  <script src="boss-chat.js"></script>
+</body>
+</html>

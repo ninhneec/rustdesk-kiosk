@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js",
+    "check": "node --check index.js && node --check public/app.js && node --check public/chat.js && node --check public/boss-chat.js"
   },
   "keywords": [],
   "author": "",

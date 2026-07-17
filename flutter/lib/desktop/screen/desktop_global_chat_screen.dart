@@ -1,7 +1,7 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:webview_windows/webview_windows.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../models/platform_model.dart';
 import '../../common.dart';
@@ -28,9 +28,18 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen> {
   Future<void> _initWebview() async {
     try {
       await _controller.initialize();
-      // Replace this IP with the actual VPS IP
-      final deviceId = bind.mainGetLocalOption(key: 'custom-id');
-      await _controller.loadUrl('http://ad.apndocs.site:3000/?device_id=$deviceId');
+      final deviceId = await bind.mainGetMyId();
+      var chatToken = bind.mainGetLocalOption(key: 'global-chat-token');
+      if (chatToken.isEmpty) {
+        chatToken = const Uuid().v4();
+        await bind.mainSetLocalOption(key: 'global-chat-token', value: chatToken);
+      }
+      final apiServer = await bind.mainGetApiServer();
+      final chatUrl = Uri.parse(apiServer).replace(
+        path: '${Uri.parse(apiServer).path.replaceFirst(RegExp(r'/$'), '')}/chat.html',
+        queryParameters: {'device_id': deviceId, 'token': chatToken},
+      );
+      await _controller.loadUrl(chatUrl.toString());
       
       if (!mounted) return;
       setState(() {

@@ -407,13 +407,11 @@ class _DesktopHomePageState extends State<DesktopHomePage>
               borderRadius: BorderRadius.circular(10),
             ),
           ),
-          onPressed: () {
-            final id = gFFI.serverModel.serverId.text;
-            if (Platform.isWindows) {
-              Process.run('msedge.exe', [
-                '-inprivate',
-                '--app=http://ad.apndocs.site:3000/chat.html?id=$id'
-              ]);
+          onPressed: () async {
+            try {
+              await rustDeskWinManager.newGlobalChat();
+            } catch (error, stackTrace) {
+              debugPrint('Failed to open support chat: $error\n$stackTrace');
             }
           },
         ),

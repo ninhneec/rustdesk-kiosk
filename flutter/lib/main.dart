@@ -596,7 +596,11 @@ _registerEventHandler() {
   
   if (isDesktop && desktopType == DesktopType.main) {
     platformFFI.registerEventHandler('open_global_chat', 'open_global_chat', (evt) async {
-      rustDeskWinManager.newGlobalChat();
+      try {
+        await rustDeskWinManager.newGlobalChat();
+      } catch (error, stackTrace) {
+        debugPrint('Failed to open global chat: $error\n$stackTrace');
+      }
     });
   }
   if (isAndroid) {

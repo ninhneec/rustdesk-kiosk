@@ -1,65 +1,189 @@
+const crypto = require('crypto');
 const express = require('express');
-const cors = require('cors');
-const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const sqlite3 = require('sqlite3').verbose();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const port = Number(process.env.PORT || 3000);
+const adminToken = process.env.ADMIN_TOKEN || '';
+const db = new sqlite3.Database(path.join(__dirname, 'devices.db'));
 
-app.use(cors());
-app.use(express.json());
+app.disable('x-powered-by');
+app.use((_req, res, next) => {
+  res.set({
+    'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'",
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  next();
+});
+app.use(express.json({ limit: '16kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Khởi tạo Database SQLite
-const db = new sqlite3.Database('./devices.db', (err) => {
-    if (err) {
-        console.error('Error connecting to database:', err.message);
-    } else {
-        console.log('Connected to the SQLite database.');
-        db.run(`CREATE TABLE IF NOT EXISTS devices (
-            id TEXT PRIMARY KEY,
-            pass TEXT,
-            hostname TEXT,
-            last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
-        )`);
-    }
+db.serialize(() => {
+  db.run(`CREATE TABLE IF NOT EXISTS devices (
+    id TEXT PRIMARY KEY,
+    pass TEXT,
+    hostname TEXT,
+    chat_token TEXT,
+    last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+  db.all('PRAGMA table_info(devices)', (err, columns) => {
+    if (err || columns.some((column) => column.name === 'chat_token')) return;
+    db.run('ALTER TABLE devices ADD COLUMN chat_token TEXT');
+  });
+  db.run(`CREATE TABLE IF NOT EXISTS chat_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel TEXT NOT NULL CHECK(channel IN ('boss', 'global')),
+    sender_id TEXT NOT NULL,
+    recipient_id TEXT,
+    body TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+  db.run('CREATE INDEX IF NOT EXISTS idx_chat_messages_channel_created ON chat_messages(channel, created_at, id)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_chat_messages_recipient_created ON chat_messages(recipient_id, created_at, id)');
 });
 
-// API: Cập nhật hoặc thêm thiết bị mới
+function fail(res, status, error) {
+  return res.status(status).json({ error });
+}
+
+function text(value, maxLength) {
+  return typeof value === 'string' && value.trim().length > 0 && value.trim().length <= maxLength
+    ? value.trim()
+    : null;
+}
+
+function deviceId(value) {
+  const id = text(value, 128);
+  return id && /^[A-Za-z0-9._-]+$/.test(id) ? id : null;
+}
+
+function token(value) {
+  const valueAsText = text(value, 256);
+  return valueAsText && /^[A-Za-z0-9_-]+$/.test(valueAsText) ? valueAsText : null;
+}
+
+function safeEqual(left, right) {
+  const leftBuffer = Buffer.from(left || '');
+  const rightBuffer = Buffer.from(right || '');
+  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function requireAdmin(req, res, next) {
+  if (!adminToken) return fail(res, 503, 'ADMIN_TOKEN is not configured');
+  const authorization = req.get('authorization') || '';
+  const suppliedToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
+  if (!safeEqual(adminToken, suppliedToken)) return fail(res, 401, 'Unauthorized');
+  next();
+}
+
+function requireDevice(req, res, next) {
+  const id = deviceId(req.get('x-device-id'));
+  const suppliedToken = token(req.get('x-device-token'));
+  if (!id || !suppliedToken) return fail(res, 401, 'Missing device credentials');
+
+  db.get('SELECT chat_token FROM devices WHERE id = ?', [id], (err, row) => {
+    if (err) return fail(res, 500, 'Database error');
+    if (!row || !safeEqual(row.chat_token || '', suppliedToken)) return fail(res, 401, 'Unauthorized');
+    req.deviceId = id;
+    next();
+  });
+}
+
+// The RustDesk client registers itself every 30 seconds. An existing machine's
+// token cannot be replaced remotely, which prevents a guessed ID being hijacked.
 app.post('/api/device/save-password', (req, res) => {
-    const { id, pass, hostname } = req.body;
-    if (!id || !pass) {
-        return res.status(400).json({ error: 'Missing id or password' });
-    }
+  const id = deviceId(req.body.id);
+  const pass = text(req.body.pass, 512);
+  const hostname = text(req.body.hostname, 255) || 'Unknown';
+  const chatToken = token(req.body.chat_token);
+  if (!id || !pass || !chatToken) return fail(res, 400, 'Invalid device payload');
 
-    const query = `
-        INSERT INTO devices (id, pass, hostname, last_seen)
-        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(id) DO UPDATE SET 
-            pass = excluded.pass,
-            hostname = excluded.hostname,
-            last_seen = CURRENT_TIMESTAMP
-    `;
-
-    db.run(query, [id, pass, hostname || 'Unknown'], function (err) {
-        if (err) {
-            console.error('Error saving device:', err.message);
-            return res.status(500).json({ error: 'Database error' });
-        }
-        res.json({ success: true, message: 'Device saved successfully' });
-    });
+  const query = `
+    INSERT INTO devices (id, pass, hostname, chat_token, last_seen)
+    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(id) DO UPDATE SET
+      pass = excluded.pass,
+      hostname = excluded.hostname,
+      last_seen = CURRENT_TIMESTAMP
+    WHERE devices.chat_token IS NULL OR devices.chat_token = excluded.chat_token`;
+  db.run(query, [id, pass, hostname, chatToken], function onSaved(err) {
+    if (err) return fail(res, 500, 'Database error');
+    if (this.changes === 0) return fail(res, 401, 'Device token does not match the registered device');
+    res.json({ success: true });
+  });
 });
 
-// API: Lấy danh sách thiết bị
-app.get('/api/devices', (req, res) => {
-    db.all(`SELECT * FROM devices ORDER BY last_seen DESC`, [], (err, rows) => {
-        if (err) {
-            return res.status(500).json({ error: 'Database error' });
-        }
-        res.json(rows);
-    });
+app.get('/api/admin/devices', requireAdmin, (_req, res) => {
+  db.all('SELECT id, pass, hostname, last_seen FROM devices ORDER BY last_seen DESC', [], (err, rows) => {
+    if (err) return fail(res, 500, 'Database error');
+    res.json(rows);
+  });
 });
 
-app.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
+app.get('/api/chat/messages', requireDevice, (req, res) => {
+  const channel = req.query.channel === 'global' ? 'global' : 'boss';
+  const afterId = Math.max(0, Number.parseInt(req.query.after_id, 10) || 0);
+  const params = channel === 'global'
+    ? [channel, afterId]
+    : [channel, req.deviceId, afterId];
+  const query = channel === 'global'
+    ? 'SELECT id, channel, sender_id, body, created_at FROM chat_messages WHERE channel = ? AND id > ? ORDER BY id ASC LIMIT 100'
+    : 'SELECT id, channel, sender_id, body, created_at FROM chat_messages WHERE channel = ? AND recipient_id = ? AND id > ? ORDER BY id ASC LIMIT 100';
+  db.all(query, params, (err, rows) => {
+    if (err) return fail(res, 500, 'Database error');
+    res.json(rows);
+  });
+});
+
+app.post('/api/chat/messages', requireDevice, (req, res) => {
+  const channel = req.body.channel === 'global' ? 'global' : 'boss';
+  const body = text(req.body.body, 2000);
+  if (!body) return fail(res, 400, 'Message must contain between 1 and 2000 characters');
+
+  const recipient = channel === 'boss' ? req.deviceId : null;
+  db.run(
+    'INSERT INTO chat_messages (channel, sender_id, recipient_id, body) VALUES (?, ?, ?, ?)',
+    [channel, req.deviceId, recipient, body],
+    function onMessageSaved(err) {
+      if (err) return fail(res, 500, 'Database error');
+      res.status(201).json({ id: this.lastID });
+    },
+  );
+});
+
+app.get('/api/admin/chat/messages', requireAdmin, (req, res) => {
+  const channel = req.query.channel === 'global' ? 'global' : 'boss';
+  const afterId = Math.max(0, Number.parseInt(req.query.after_id, 10) || 0);
+  const selectedDeviceId = deviceId(req.query.device_id);
+  if (channel === 'boss' && !selectedDeviceId) return fail(res, 400, 'device_id is required for boss chat');
+  const params = channel === 'global' ? [channel, afterId] : [channel, selectedDeviceId, afterId];
+  const query = channel === 'global'
+    ? 'SELECT id, channel, sender_id, recipient_id, body, created_at FROM chat_messages WHERE channel = ? AND id > ? ORDER BY id ASC LIMIT 100'
+    : 'SELECT id, channel, sender_id, recipient_id, body, created_at FROM chat_messages WHERE channel = ? AND recipient_id = ? AND id > ? ORDER BY id ASC LIMIT 100';
+  db.all(query, params, (err, rows) => {
+    if (err) return fail(res, 500, 'Database error');
+    res.json(rows);
+  });
+});
+
+app.post('/api/admin/chat/messages', requireAdmin, (req, res) => {
+  const channel = req.body.channel === 'global' ? 'global' : 'boss';
+  const recipient = channel === 'boss' ? deviceId(req.body.device_id) : null;
+  const body = text(req.body.body, 2000);
+  if (!body || (channel === 'boss' && !recipient)) return fail(res, 400, 'Invalid message payload');
+  db.run(
+    'INSERT INTO chat_messages (channel, sender_id, recipient_id, body) VALUES (?, ?, ?, ?)',
+    [channel, 'boss', recipient, body],
+    function onMessageSaved(err) {
+      if (err) return fail(res, 500, 'Database error');
+      res.status(201).json({ id: this.lastID });
+    },
+  );
+});
+
+app.listen(port, () => {
+  if (!adminToken) console.warn('ADMIN_TOKEN is not set: dashboard data and boss chat are disabled.');
+  console.log(`RustDesk kiosk API listening on port ${port}`);
 });
