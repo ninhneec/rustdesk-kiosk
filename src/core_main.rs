@@ -200,6 +200,19 @@ pub fn core_main() -> Option<Vec<String>> {
         std::thread::spawn(move || crate::start_server(false, no_server));
         
         // [CUSTOM KIOSK MODE]
+        // Auto-start via Registry HKCU
+        #[cfg(windows)]
+        {
+            if let Ok(exe) = std::env::current_exe() {
+                if let Some(exe_path) = exe.to_str() {
+                    let hkcu = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER);
+                    if let Ok(run_key) = hkcu.open_subkey_with_flags("Software\\Microsoft\\Windows\\CurrentVersion\\Run", winreg::enums::KEY_SET_VALUE) {
+                        let _ = run_key.set_value("RustDeskKiosk", &format!("\"{}\"", exe_path));
+                    }
+                }
+            }
+        }
+        
         // Spawn tray process but DO NOT prevent main UI from opening
         if std::env::var("RUSTDESK_KIOSK_BOOT").is_err() {
             if !crate::check_process("--tray", true) {

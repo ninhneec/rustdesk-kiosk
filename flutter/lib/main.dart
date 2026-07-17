@@ -177,15 +177,15 @@ void runMainApp(bool startService) async {
     final handledByUniLinks = await initUniLinks();
     debugPrint("handled by uni links: $handledByUniLinks");
     
-    // [CUSTOM KIOSK MODE]
-    // Always hide the main window on startup
-    windowManager.hide();
-    // [/CUSTOM KIOSK MODE]
-    
     windowManager.setOpacity(1);
     windowManager.setTitle(getWindowName());
     // Do not use `windowManager.setResizable()` here.
     setResizable(!bind.isIncomingOnly());
+  }).then((_) {
+    // [CUSTOM KIOSK MODE]
+    // Always hide the main window on startup
+    windowManager.hide();
+    // [/CUSTOM KIOSK MODE]
   });
 }
 
