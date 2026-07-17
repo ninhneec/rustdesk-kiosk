@@ -1,10 +1,11 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:webview_windows/webview_windows.dart';
-import 'package:window_manager/window_manager.dart';
+import 'package:desktop_multi_window/desktop_multi_window.dart';
 
 import '../../models/platform_model.dart';
 import '../../common.dart';
+import '../../main.dart';
 
 class DesktopGlobalChatScreen extends StatefulWidget {
   const DesktopGlobalChatScreen({Key? key}) : super(key: key);
@@ -25,17 +26,6 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen> {
   }
 
   Future<void> _initWebview() async {
-    // Try to position window at bottom right
-    try {
-      await windowManager.ensureInitialized();
-      await windowManager.setAlignment(Alignment.bottomRight);
-      await windowManager.setAlwaysOnTop(true);
-      await windowManager.show();
-      await windowManager.focus();
-    } catch (e) {
-      debugPrint("window_manager init error: $e");
-    }
-
     try {
       await _controller.initialize();
       // Replace this IP with the actual VPS IP
@@ -82,7 +72,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen> {
             child: IconButton(
               icon: const Icon(Icons.close, color: Colors.white70, size: 20),
               onPressed: () {
-                windowManager.close();
+                WindowController.fromWindowId(kWindowId!).close();
               },
             ),
           ),
@@ -96,7 +86,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen> {
             child: GestureDetector(
               behavior: HitTestBehavior.translucent,
               onPanStart: (details) {
-                windowManager.startDragging();
+                WindowController.fromWindowId(kWindowId!).startDragging();
               },
             ),
           ),

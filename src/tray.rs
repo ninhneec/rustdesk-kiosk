@@ -127,6 +127,43 @@ fn make_tray() -> hbb_common::ResultType<()> {
     std::thread::spawn(move || {
         start_query_session_count(ipc_sender.clone());
     });
+    
+    // [CUSTOM KIOSK MODE]
+    // Register Global Hotkey (Ctrl + Shift + F12) to open Global Chat
+    #[cfg(windows)]
+    {
+        std::thread::spawn(|| {
+            use winapi::um::winuser::{RegisterHotKey, GetMessageW, TranslateMessage, DispatchMessageW, MSG, MOD_CONTROL, MOD_SHIFT, WM_HOTKEY};
+            const VK_F12: u32 = 0x7B;
+            unsafe {
+                if RegisterHotKey(std::ptr::null_mut(), 1, MOD_CONTROL as u32 | MOD_SHIFT as u32, VK_F12) != 0 {
+                    let mut msg: MSG = std::mem::zeroed();
+                    while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
+                        if msg.message == WM_HOTKEY && msg.wParam == 1 {
+                            // Trigger Global Chat
+                            let _ = std::thread::spawn(|| {
+                                hbb_common::tokio::runtime::Builder::new_current_thread()
+                                    .enable_all()
+                                    .build()
+                                    .unwrap()
+                                    .block_on(async {
+                                        if let Ok(mut c) = crate::ipc::connect(1000, "").await {
+                                            let _ = c.send(&crate::ipc::Data::OpenGlobalChat).await;
+                                        }
+                                    });
+                            });
+                        }
+                        TranslateMessage(&msg);
+                        DispatchMessageW(&msg);
+                    }
+                } else {
+                    log::error!("Failed to register hotkey Ctrl+Shift+F12");
+                }
+            }
+        });
+    }
+    // [/CUSTOM KIOSK MODE]
+
     #[cfg(windows)]
     let mut last_click = std::time::Instant::now();
     #[cfg(target_os = "macos")]
