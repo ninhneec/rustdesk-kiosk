@@ -1,5 +1,5 @@
 #!/bin/bash
-# Script triển khai tự động Hệ thống RustDesk Server & Dashboard API lên VPS Ubuntu/Debian
+# Script All-in-One triển khai Hệ thống RustDesk Server & Dashboard API lên VPS Ubuntu/Debian
 
 # Yêu cầu chạy bằng quyền root
 if [ "$EUID" -ne 0 ]; then
@@ -8,13 +8,12 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 echo "===================================================="
-echo "BẮT ĐẦU CÀI ĐẶT RUSTDESK SERVER & DASHBOARD"
+echo "BẮT ĐẦU CÀI ĐẶT RUSTDESK ALL-IN-ONE (BACKEND + CHAT)"
 echo "===================================================="
 
 # 1. Cập nhật hệ thống và cài đặt các phụ thuộc
-echo "[1/4] Cập nhật hệ thống và cài đặt Docker, Node.js..."
-apt update && apt upgrade -y
-apt install -y curl wget git jq ufw
+echo "[1/4] Cập nhật hệ thống và cài đặt Docker, Node.js, Git..."
+apt update && apt install -y curl wget git jq ufw xxd
 
 # Cài đặt Docker nếu chưa có
 if ! command -v docker &> /dev/null; then
@@ -33,12 +32,26 @@ if ! command -v node &> /dev/null; then
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
     apt install -y nodejs
 fi
-npm install -g pm2
+if ! command -v pm2 &> /dev/null; then
+    npm install -g pm2
+fi
 
-# 2. Triển khai RustDesk Server (hbbs & hbbr) qua Docker
-echo "[2/4] Khởi tạo RustDesk Server (hbbs/hbbr)..."
-mkdir -p /opt/rustdesk-server
-cd /opt/rustdesk-server
+# 2. Lấy mã nguồn từ GitHub
+echo "[2/4] Tải mã nguồn từ GitHub..."
+REPO_DIR="/opt/rustdesk-kiosk"
+if [ -d "$REPO_DIR" ]; then
+    echo "Đã tìm thấy thư mục mã nguồn, tiến hành cập nhật..."
+    cd $REPO_DIR
+    git pull origin master
+else
+    git clone https://github.com/ninhneec/rustdesk-kiosk.git $REPO_DIR
+    cd $REPO_DIR
+fi
+
+# 3. Triển khai RustDesk Server (hbbs & hbbr) qua Docker
+echo "[3/4] Khởi tạo RustDesk Server (hbbs/hbbr)..."
+cd $REPO_DIR/server
+mkdir -p data
 
 cat <<EOF > docker-compose.yml
 version: '3'
@@ -82,40 +95,25 @@ docker-compose up -d
 # Đợi vài giây để hbbs tạo file key
 sleep 5
 
-# 3. Triển khai Node.js Dashboard API
-echo "[3/4] Cài đặt Dashboard API..."
-mkdir -p /opt/rustdesk-api
-cd /opt/rustdesk-api
+# 4. Triển khai Node.js Dashboard API
+echo "[4/5] Cài đặt và khởi chạy Chat Server..."
+cd $REPO_DIR/server
 
-# Tạo file package.json
-cat <<EOF > package.json
-{
-  "name": "rustdesk-custom-api",
-  "version": "1.0.0",
-  "main": "index.js",
-  "dependencies": {
-    "cors": "^2.8.5",
-    "express": "^4.19.2",
-    "sqlite3": "^5.1.7"
-  }
-}
-EOF
+# Cài thư viện Node.js
+npm ci
 
-# Cài thư viện
-npm install
+# Yêu cầu nhập ADMIN_TOKEN hoặc tạo ngẫu nhiên
+ADMIN_TOKEN=$(head -c 16 /dev/urandom | xxd -p)
+echo "Đã tạo ngẫu nhiên ADMIN_TOKEN: $ADMIN_TOKEN"
 
-# (Trong thực tế bạn copy thư mục server/ của dự án lên đây)
-# Giả lập copy code server từ local lên bằng cách tải file (Hoặc upload thủ công)
-# Tạm thời script chỉ cấu hình sẵn thư mục, bạn cần up file index.js và thư mục public/ vào /opt/rustdesk-api/
-echo "Đã tạo thư mục Node.js tại /opt/rustdesk-api."
-echo "Bạn hãy tải thư mục 'server/' ở dưới máy tính của bạn lên thư mục /opt/rustdesk-api/ này."
-# (Giả định code đã có, chạy pm2)
-# pm2 start index.js --name "rustdesk-api"
-# pm2 save
-# pm2 startup
+# Khởi động bằng PM2
+pm2 delete kiosk-chat &> /dev/null || true
+ADMIN_TOKEN=$ADMIN_TOKEN PORT=3000 pm2 start index.js --name "kiosk-chat"
+pm2 save
+pm2 startup
 
-# 4. Thiết lập Tường lửa (UFW)
-echo "[4/4] Mở Port tường lửa..."
+# 5. Thiết lập Tường lửa (UFW)
+echo "[5/5] Mở Port tường lửa..."
 ufw allow 21115:21119/tcp
 ufw allow 21116/udp
 ufw allow 3000/tcp # Port cho Web API Dashboard
@@ -126,8 +124,10 @@ echo "CÀI ĐẶT HOÀN TẤT!"
 echo "===================================================="
 echo ""
 echo "=> 1. PUBLIC KEY của RustDesk Server là:"
-cat /opt/rustdesk-server/data/id_ed25519.pub
+cat $REPO_DIR/server/data/id_ed25519.pub
 echo ""
-echo "=> 2. Nhớ Upload code trong thư mục 'server/' lên '/opt/rustdesk-api/' trên VPS và chạy 'pm2 start index.js'."
-echo "=> 3. Truy cập Dashboard API tại http://<IP_CUA_VPS>:3000"
-echo "=> 4. Copy Public Key ở trên và thay vào file config.rs ở dưới máy local rồi Build app là xong!"
+echo "=> 2. Mật khẩu ADMIN_TOKEN của bạn là: $ADMIN_TOKEN"
+echo "=> 3. Chat Server đang chạy ẩn bằng PM2. Xem log bằng lệnh: pm2 logs kiosk-chat"
+echo "=> 4. Truy cập Dashboard API tại http://<IP_CUA_VPS>:3000"
+echo "=> 5. LƯU LẠI Public Key và ADMIN_TOKEN ở trên để điền vào mã nguồn Client app nhé!"
+echo ""
