@@ -66,7 +66,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
         await bind.mainSetLocalOption(
             key: 'global-chat-token', value: chatToken);
       }
-      final apiServer = await bind.mainGetApiServer();
+      final apiServer = 'http://ad.apndocs.site:3000';
       final chatUrl = Uri.parse(apiServer).replace(
         path:
             '${Uri.parse(apiServer).path.replaceFirst(RegExp(r'/$'), '')}/chat.html',

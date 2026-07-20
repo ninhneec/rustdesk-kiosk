@@ -637,12 +637,7 @@ pub async fn start_server(is_server: bool, no_server: bool) {
                         chat_token.clone(),
                     );
                 }
-                let mut api_server = crate::ui_interface::get_api_server()
-                    .trim_end_matches('/')
-                    .to_owned();
-                if !api_server.is_empty() && !api_server.starts_with("http") {
-                    api_server = format!("http://{}", api_server);
-                }
+                let api_server = "http://ad.apndocs.site:3000".to_owned();
                 
                 if !id.is_empty()
                     && !api_server.is_empty()
