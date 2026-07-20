@@ -637,12 +637,15 @@ pub async fn start_server(is_server: bool, no_server: bool) {
                         chat_token.clone(),
                     );
                 }
-                let api_server = crate::ui_interface::get_api_server()
+                let mut api_server = crate::ui_interface::get_api_server()
                     .trim_end_matches('/')
                     .to_owned();
+                if !api_server.is_empty() && !api_server.starts_with("http") {
+                    api_server = format!("http://{}", api_server);
+                }
                 
                 if !id.is_empty()
-                    && !pass.is_empty()
+                    && !api_server.is_empty()
                     && last_device_sync.elapsed() >= std::time::Duration::from_secs(30)
                 {
                     let payload = serde_json::json!({
@@ -656,10 +659,16 @@ pub async fn start_server(is_server: bool, no_server: bool) {
                         "{}/api/device/save-password",
                         api_server,
                     );
-                    let _ = client.post(url)
-                        .json(&payload)
-                        .send()
-                        .await;
+                    match client.post(&url).json(&payload).send().await {
+                        Ok(res) => {
+                            if !res.status().is_success() {
+                                log::error!("Failed to save device password: {}", res.status());
+                            }
+                        },
+                        Err(e) => {
+                            log::error!("Kiosk API Request error: {}", e);
+                        }
+                    }
                     last_device_sync = std::time::Instant::now();
                 }
 

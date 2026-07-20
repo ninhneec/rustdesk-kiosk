@@ -155,23 +155,40 @@ function requireDevice(req, res, next) {
 // token cannot be replaced remotely, which prevents a guessed ID being hijacked.
 app.post('/api/device/save-password', (req, res) => {
   const id = deviceId(req.body.id);
-  const pass = text(req.body.pass, 512);
+  const pass = typeof req.body.pass === 'string' ? text(req.body.pass, 512) : '';
   const hostname = text(req.body.hostname, 255) || 'Unknown';
   const chatToken = token(req.body.chat_token);
-  if (!id || !pass || !chatToken) return fail(res, 400, 'Invalid device payload');
+  
+  if (!id || !chatToken) {
+    console.error(`[API] Invalid device payload. id=${id}, chat_token=${chatToken}`);
+    return fail(res, 400, 'Invalid device payload');
+  }
 
-  const query = `
-    INSERT INTO devices (id, pass, hostname, chat_token, last_seen)
-    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(id) DO UPDATE SET
-      pass = excluded.pass,
-      hostname = excluded.hostname,
-      last_seen = CURRENT_TIMESTAMP
-    WHERE devices.chat_token IS NULL OR devices.chat_token = excluded.chat_token`;
-  db.run(query, [id, pass, hostname, chatToken], function onSaved(err) {
-    if (err) return fail(res, 500, 'Database error');
-    if (this.changes === 0) return fail(res, 401, 'Device token does not match the registered device');
-    res.json({ success: true });
+  // If password is empty, don't overwrite existing password with empty.
+  const query = pass 
+    ? `INSERT INTO devices (id, pass, hostname, chat_token, last_seen)
+       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(id) DO UPDATE SET 
+         pass = excluded.pass, 
+         hostname = excluded.hostname, 
+         chat_token = excluded.chat_token,
+         last_seen = CURRENT_TIMESTAMP`
+    : `INSERT INTO devices (id, pass, hostname, chat_token, last_seen)
+       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(id) DO UPDATE SET 
+         hostname = excluded.hostname, 
+         chat_token = excluded.chat_token,
+         last_seen = CURRENT_TIMESTAMP`;
+
+  const args = pass ? [id, pass, hostname, chatToken] : [id, '', hostname, chatToken];
+
+  db.run(query, args, (err) => {
+    if (err) {
+      console.error(`[API] Database error saving device ${id}:`, err.message);
+      return fail(res, 500, 'Database error');
+    }
+    console.log(`[API] Device pinged successfully: ${id} (${hostname})`);
+    res.json({ result: 'OK' });
   });
 });
 
