@@ -23,6 +23,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
   final _controller = WebviewController();
   bool _isWebviewInitialized = false;
   bool _hasError = false;
+  String _errorMsg = '';
   bool _isClosing = false;
   StreamSubscription<dynamic>? _webMessageSubscription;
 
@@ -87,6 +88,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
       if (mounted) {
         setState(() {
           _hasError = true;
+          _errorMsg = e.toString();
         });
       }
     }
@@ -116,10 +118,14 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
               if (!_isWebviewInitialized && !_hasError)
                 const Center(child: CircularProgressIndicator()),
               if (_hasError)
-                const Center(
-                  child: Text(
-                    'Failed to load chat. Please check your connection.',
-                    style: TextStyle(color: Colors.white),
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Text(
+                      'Failed to load chat. Error:\n$_errorMsg',
+                      style: const TextStyle(color: Colors.white),
+                      textAlign: TextAlign.center,
+                    ),
                   ),
                 ),
               Positioned(
