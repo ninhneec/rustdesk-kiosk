@@ -96,12 +96,27 @@ function renderDevices(data) {
     const lastSeen = new Date(`${device.last_seen}Z`);
     const online = (Date.now() - lastSeen) < 5 * 60 * 1000;
     const row = document.createElement('tr');
-    row.innerHTML = `<td><span class="status-indicator ${online ? '' : 'offline'}"></span></td><td></td><td></td><td></td><td class="time-cell"></td><td><button class="btn-chat">Nhắn boss</button> <a class="btn-connect">Kết nối</a></td>`;
+    row.innerHTML = `<td><span class="status-indicator ${online ? '' : 'offline'}"></span></td><td></td><td></td><td></td><td></td><td class="time-cell"></td><td><button class="btn-chat">Nhắn boss</button> <a class="btn-connect">Kết nối</a></td>`;
     const cells = row.querySelectorAll('td');
     cells[1].textContent = device.hostname || 'Unknown';
     cells[2].textContent = device.id;
     cells[3].textContent = device.pass;
-    cells[4].textContent = lastSeen.toLocaleString('vi-VN');
+    
+    const seatSelect = document.createElement('select');
+    seatSelect.className = 'device-select';
+    seatSelect.style.marginTop = '0';
+    seatSelect.style.padding = '4px 8px';
+    seatSelect.style.width = '100px';
+    seatSelect.innerHTML = '<option value="">-- Trống --</option>';
+    for (let i = 1; i <= 36; i++) {
+        const sid = i < 10 ? 'M0' + i : 'M' + i;
+        seatSelect.innerHTML += `<option value="${sid}">${sid}</option>`;
+    }
+    seatSelect.value = device.seat_id || '';
+    seatSelect.onchange = () => doAssignSeat(device.id, seatSelect.value || null);
+    cells[4].appendChild(seatSelect);
+    
+    cells[5].textContent = lastSeen.toLocaleString('vi-VN');
     row.querySelector('.btn-connect').href = `rustdesk://connect?id=${encodeURIComponent(device.id)}`;
     row.querySelector('.btn-chat').addEventListener('click', () => openBossChat(device));
     deviceList.append(row);
