@@ -6,12 +6,18 @@ const sqlite3 = require('sqlite3').verbose();
 const app = express();
 const port = Number(process.env.PORT || 3000);
 const adminToken = process.env.ADMIN_TOKEN || '';
-const alertKeywords = [...new Set(
-  (process.env.ALERT_KEYWORDS || 'khẩn cấp,cứu,nguy hiểm,help,sos')
-    .split(',')
-    .map((keyword) => keyword.trim().normalize('NFC').toLocaleLowerCase('vi'))
-    .filter(Boolean),
-)].sort((left, right) => right.length - left.length);
+let alertKeywords = [];
+const defaultKeywords = 'khẩn cấp,cứu,nguy hiểm,help,sos';
+
+function parseKeywords(str) {
+  return [...new Set(
+    (str || '')
+      .split(',')
+      .map((keyword) => keyword.trim().normalize('NFC').toLocaleLowerCase('vi'))
+      .filter(Boolean),
+  )].sort((left, right) => right.length - left.length);
+}
+alertKeywords = parseKeywords(process.env.ALERT_KEYWORDS || defaultKeywords);
 const db = new sqlite3.Database(path.join(__dirname, 'devices.db'));
 
 app.disable('x-powered-by');
@@ -58,6 +64,20 @@ db.serialize(() => {
     FOREIGN KEY(message_id) REFERENCES chat_messages(id)
   )`);
   db.run('CREATE INDEX IF NOT EXISTS idx_chat_alerts_active ON chat_alerts(acknowledged, id)');
+
+  db.run(`CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT
+  )`);
+  db.get('SELECT value FROM settings WHERE key = ?', ['alert_keywords'], (err, row) => {
+    if (!err && row && row.value) {
+      alertKeywords = parseKeywords(row.value);
+    } else {
+      const initialKeywords = process.env.ALERT_KEYWORDS || defaultKeywords;
+      db.run('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', ['alert_keywords', initialKeywords]);
+      alertKeywords = parseKeywords(initialKeywords);
+    }
+  });
 });
 
 function fail(res, status, error) {
@@ -251,6 +271,26 @@ app.post('/api/admin/chat/alerts/:id/acknowledge', requireAdmin, (req, res) => {
     if (this.changes === 0) return fail(res, 404, 'Alert not found');
     res.json({ success: true });
   });
+});
+
+app.get('/api/admin/settings/keywords', requireAdmin, (req, res) => {
+  res.json({ keywords: alertKeywords.join(', ') });
+});
+
+app.post('/api/admin/settings/keywords', requireAdmin, (req, res) => {
+  const keywordsStr = typeof req.body.keywords === 'string' ? req.body.keywords : '';
+  const newKeywords = parseKeywords(keywordsStr);
+  const newKeywordsStr = newKeywords.join(', ');
+  
+  db.run(
+    'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+    ['alert_keywords', newKeywordsStr],
+    (err) => {
+      if (err) return fail(res, 500, 'Database error');
+      alertKeywords = newKeywords;
+      res.json({ success: true, keywords: newKeywordsStr });
+    }
+  );
 });
 
 app.listen(port, () => {

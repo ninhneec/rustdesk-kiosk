@@ -10,6 +10,10 @@ const toast = document.getElementById('toast');
 const alertPanel = document.getElementById('alert-panel');
 const alertList = document.getElementById('alert-list');
 const alertCount = document.getElementById('alert-count');
+const keywordsInput = document.getElementById('keywords-input');
+const saveKeywordsBtn = document.getElementById('save-keywords-btn');
+const settingsMessage = document.getElementById('settings-message');
+
 let devices = [];
 let alerts = [];
 let refreshTimer;
@@ -112,6 +116,45 @@ searchInput.addEventListener('input', () => {
   const keyword = searchInput.value.toLowerCase();
   renderDevices(devices.filter((device) => `${device.hostname} ${device.id}`.toLowerCase().includes(keyword)));
 });
+
+async function fetchKeywords() {
+  if (!adminToken) return;
+  try {
+    const response = await fetch('/api/admin/settings/keywords', { headers: headers() });
+    if (!response.ok) throw new Error(await response.text());
+    const data = await response.json();
+    keywordsInput.value = data.keywords;
+  } catch (error) {
+    console.error('Could not load keywords:', error);
+    keywordsInput.placeholder = 'Lỗi tải từ khóa. Kiểm tra ADMIN_TOKEN.';
+  }
+}
+
+saveKeywordsBtn.addEventListener('click', async () => {
+  saveKeywordsBtn.disabled = true;
+  settingsMessage.textContent = 'Đang lưu...';
+  settingsMessage.style.color = 'var(--text-secondary)';
+  try {
+    const response = await fetch('/api/admin/settings/keywords', {
+      method: 'POST',
+      headers: { ...headers(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keywords: keywordsInput.value })
+    });
+    if (!response.ok) throw new Error(await response.text());
+    const data = await response.json();
+    keywordsInput.value = data.keywords;
+    settingsMessage.textContent = 'Đã lưu thành công!';
+    settingsMessage.style.color = 'var(--success-color)';
+    setTimeout(() => { settingsMessage.textContent = ''; }, 3000);
+  } catch (error) {
+    console.error('Could not save keywords:', error);
+    settingsMessage.textContent = 'Lỗi khi lưu!';
+    settingsMessage.style.color = 'var(--danger-color)';
+  } finally {
+    saveKeywordsBtn.disabled = false;
+  }
+});
+
 async function refreshDashboard() {
   clearTimeout(refreshTimer);
   if (!document.hidden) await Promise.all([fetchDevices(), fetchAlerts()]);
@@ -120,6 +163,7 @@ async function refreshDashboard() {
 
 refreshBtn.addEventListener('click', refreshDashboard);
 document.addEventListener('visibilitychange', refreshDashboard);
+fetchKeywords();
 refreshDashboard();
 
 window.copyToClipboard = async (value) => {
