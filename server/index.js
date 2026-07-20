@@ -38,11 +38,17 @@ db.serialize(() => {
     pass TEXT,
     hostname TEXT,
     chat_token TEXT,
+    seat_id TEXT,
     last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
   db.all('PRAGMA table_info(devices)', (err, columns) => {
-    if (err || columns.some((column) => column.name === 'chat_token')) return;
-    db.run('ALTER TABLE devices ADD COLUMN chat_token TEXT');
+    if (err) return;
+    if (!columns.some((column) => column.name === 'chat_token')) {
+      db.run('ALTER TABLE devices ADD COLUMN chat_token TEXT');
+    }
+    if (!columns.some((column) => column.name === 'seat_id')) {
+      db.run('ALTER TABLE devices ADD COLUMN seat_id TEXT');
+    }
   });
   db.run(`CREATE TABLE IF NOT EXISTS chat_messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -193,9 +199,21 @@ app.post('/api/device/save-password', (req, res) => {
 });
 
 app.get('/api/admin/devices', requireAdmin, (_req, res) => {
-  db.all('SELECT id, pass, hostname, last_seen FROM devices ORDER BY last_seen DESC', [], (err, rows) => {
+  db.all('SELECT id, pass, hostname, seat_id, last_seen FROM devices ORDER BY last_seen DESC', [], (err, rows) => {
     if (err) return fail(res, 500, 'Database error');
     res.json(rows);
+  });
+});
+
+app.post('/api/admin/devices/:id/seat', requireAdmin, (req, res) => {
+  const id = deviceId(req.params.id);
+  const seatId = text(req.body.seat_id, 10);
+  if (!id) return fail(res, 400, 'Invalid device ID');
+  
+  db.run('UPDATE devices SET seat_id = ? WHERE id = ?', [seatId || null, id], function(err) {
+    if (err) return fail(res, 500, 'Database error');
+    if (this.changes === 0) return fail(res, 404, 'Device not found');
+    res.json({ result: 'OK' });
   });
 });
 

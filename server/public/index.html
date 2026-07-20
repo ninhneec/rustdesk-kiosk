@@ -24,7 +24,12 @@
             </div>
         </header>
 
-        <main class="main-content">
+        <div class="tabs-container">
+            <button class="tab-btn active" onclick="switchTab('list')">Danh Sách Thiết Bị</button>
+            <button class="tab-btn" onclick="switchTab('map')">Sơ Đồ P204</button>
+        </div>
+
+        <main class="main-content" id="tab-list">
             <section id="alert-panel" class="alert-panel" hidden>
                 <div class="alert-panel-heading">
                     <div><strong>Cảnh báo từ chat</strong><span id="alert-count"></span></div>
@@ -87,6 +92,57 @@
                 </table>
             </div>
         </main>
+
+        <main class="main-content" id="tab-map" style="display: none;">
+            <div class="map-controls">
+                <button class="btn-connect" onclick="zoomMap(0.1)">➕ Phóng to</button>
+                <button class="btn-connect" onclick="zoomMap(-0.1)">➖ Thu nhỏ</button>
+                <button class="btn-connect" onclick="resetZoom()">🔄 Đặt lại</button>
+            </div>
+            <div class="map-container-wrapper" id="map-container-wrapper">
+                <div class="map-grid-container" id="map-grid-container">
+                    <div id="deskGrid" class="desk-grid">
+                        <div class="desk-row" id="row4"><div class="row-label">Dãy 4</div></div>
+                        <div class="desk-row" id="row3"><div class="row-label">Dãy 3</div></div>
+                        <div class="desk-row" id="row2"><div class="row-label">Dãy 2</div></div>
+                        <div class="desk-row" id="row1"><div class="row-label">Dãy 1</div></div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Seat Assignment Modal -->
+    <div id="seat-modal" class="modal" hidden>
+        <div class="modal-content">
+            <h2 id="modal-seat-title">Gán Máy vào Ghế M01</h2>
+            <div class="modal-body">
+                <div id="modal-unassigned-view">
+                    <p>Chọn một thiết bị đang Online để gán vào vị trí này:</p>
+                    <select id="unassigned-device-select" class="device-select">
+                        <option value="">-- Chọn thiết bị --</option>
+                    </select>
+                    <div style="margin-top: 1rem; display: flex; gap: 0.5rem; justify-content: flex-end;">
+                        <button class="btn-cancel" onclick="closeSeatModal()">Hủy</button>
+                        <button class="btn-connect" onclick="assignSeat()">Gán Máy</button>
+                    </div>
+                </div>
+                
+                <div id="modal-assigned-view" hidden>
+                    <div class="device-info-box">
+                        <p><strong>Hostname:</strong> <span id="modal-hostname"></span></p>
+                        <p><strong>RustDesk ID:</strong> <span id="modal-rustdesk"></span></p>
+                        <p><strong>Mật khẩu:</strong> <span id="modal-password"></span></p>
+                    </div>
+                    <div style="margin-top: 1rem; display: flex; gap: 0.5rem; justify-content: flex-end;">
+                        <button class="btn-cancel" onclick="closeSeatModal()">Đóng</button>
+                        <button class="btn-danger" id="btn-unassign">Gỡ Máy khỏi Ghế</button>
+                        <button class="btn-connect" id="btn-connect-rd">Kết Nối RustDesk</button>
+                        <button class="btn-connect" id="btn-chat-rd">Chat</button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Notification Toast -->

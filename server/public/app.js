@@ -85,6 +85,9 @@ function renderDevices(data) {
   deviceList.replaceChildren();
   const onlineCount = data.filter((device) => (Date.now() - new Date(`${device.last_seen}Z`)) < 5 * 60 * 1000).length;
   deviceCount.textContent = `${onlineCount} Online`;
+  
+  if (typeof updateMap === 'function') updateMap(data);
+  
   if (!data.length) {
     deviceList.innerHTML = '<tr><td colspan="6" class="empty">Chưa có thiết bị nào kết nối</td></tr>';
     return;
@@ -171,3 +174,161 @@ window.copyToClipboard = async (value) => {
   toast.classList.add('show');
   setTimeout(() => toast.classList.remove('show'), 2000);
 };
+
+/* --- Tabs Logic --- */
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-list').style.display = tab === 'list' ? 'block' : 'none';
+  document.getElementById('tab-map').style.display = tab === 'map' ? 'block' : 'none';
+  if(tab === 'list') document.querySelector('.tab-btn:nth-child(1)').classList.add('active');
+  if(tab === 'map') {
+      document.querySelector('.tab-btn:nth-child(2)').classList.add('active');
+      if (!window.mapRendered) renderMapGrid();
+  }
+}
+
+/* --- Map Zoom Logic --- */
+let currentZoom = 1.0;
+function zoomMap(delta) {
+    currentZoom += delta;
+    if (currentZoom < 0.5) currentZoom = 0.5;
+    if (currentZoom > 1.5) currentZoom = 1.5;
+    document.getElementById('map-grid-container').style.transform = `scale(${currentZoom})`;
+}
+function resetZoom() {
+    currentZoom = 1.0;
+    document.getElementById('map-grid-container').style.transform = `scale(1)`;
+}
+
+/* --- Map Render & Drag Logic --- */
+const machinesMap = new Map();
+function renderMapGrid() {
+    window.mapRendered = true;
+    for (let row = 1; row <= 4; row++) {
+        const rowDiv = document.getElementById(`row${row}`);
+        for (let col = 1; col <= 9; col++) {
+            const idx = (row - 1) * 9 + col;
+            const seatId = idx < 10 ? `M0${idx}` : `M${idx}`;
+            
+            let shiftClass = "";
+            let isEvenIndex = (col - 1) % 2 === 0;
+            if (row === 1 || row === 3) shiftClass = isEvenIndex ? "transform: translateY(24px);" : "transform: translateY(-24px);";
+            else shiftClass = isEvenIndex ? "transform: translateY(-24px);" : "transform: translateY(24px);";
+
+            const deskHTML = `
+                <div id="desk-${seatId}" class="desk-node" style="${shiftClass}" onclick="openSeatModal('${seatId}')">
+                    <div class="status-dot"></div>
+                    <span class="desk-text">${seatId}</span>
+                </div>
+            `;
+            rowDiv.insertAdjacentHTML('beforeend', deskHTML);
+            machinesMap.set(seatId, { seat_id: seatId, status: 'offline', device: null });
+        }
+    }
+    updateMap(devices);
+}
+
+const mapContainer = document.getElementById('map-container-wrapper');
+let isDown = false, startX, startY, scrollLeft, scrollTop;
+if(mapContainer) {
+    mapContainer.addEventListener('mousedown', (e) => {
+        isDown = true; startX = e.pageX - mapContainer.offsetLeft; startY = e.pageY - mapContainer.offsetTop;
+        scrollLeft = mapContainer.scrollLeft; scrollTop = mapContainer.scrollTop;
+    });
+    mapContainer.addEventListener('mouseleave', () => { isDown = false; });
+    mapContainer.addEventListener('mouseup', () => { isDown = false; });
+    mapContainer.addEventListener('mousemove', (e) => {
+        if(!isDown) return; e.preventDefault();
+        const x = e.pageX - mapContainer.offsetLeft, y = e.pageY - mapContainer.offsetTop;
+        mapContainer.scrollLeft = scrollLeft - (x - startX) * 1.5;
+        mapContainer.scrollTop = scrollTop - (y - startY) * 1.5;
+    });
+}
+
+function updateMap(data) {
+    if (!window.mapRendered) return;
+    // Reset all
+    machinesMap.forEach(m => { m.status = 'offline'; m.device = null; });
+    
+    // Assign devices
+    data.forEach(d => {
+        if (d.seat_id) {
+            const lastSeen = new Date(`${d.last_seen}Z`);
+            const online = (Date.now() - lastSeen) < 5 * 60 * 1000;
+            const m = machinesMap.get(d.seat_id);
+            if (m) {
+                m.status = online ? 'online' : 'offline';
+                m.device = d;
+            }
+        }
+    });
+
+    // Update UI
+    machinesMap.forEach((m, seatId) => {
+        const deskEl = document.getElementById(`desk-${seatId}`);
+        if (!deskEl) return;
+        deskEl.className = 'desk-node ' + (m.device ? 'assigned ' : '') + m.status;
+    });
+}
+
+/* --- Seat Modal Logic --- */
+let currentSeatId = null;
+let currentSeatDevice = null;
+const seatModal = document.getElementById('seat-modal');
+
+function openSeatModal(seatId) {
+    currentSeatId = seatId;
+    document.getElementById('modal-seat-title').textContent = `Vị trí Ghế: ${seatId}`;
+    const m = machinesMap.get(seatId);
+    
+    if (m && m.device) {
+        currentSeatDevice = m.device;
+        document.getElementById('modal-unassigned-view').hidden = true;
+        document.getElementById('modal-assigned-view').hidden = false;
+        document.getElementById('modal-hostname').textContent = m.device.hostname || 'Unknown';
+        document.getElementById('modal-rustdesk').textContent = m.device.id;
+        document.getElementById('modal-password').textContent = m.device.pass;
+        
+        document.getElementById('btn-connect-rd').onclick = () => window.location.href = `rustdesk://connect?id=${encodeURIComponent(m.device.id)}`;
+        document.getElementById('btn-chat-rd').onclick = () => openBossChat(m.device);
+        document.getElementById('btn-unassign').onclick = () => doAssignSeat(m.device.id, null);
+    } else {
+        document.getElementById('modal-unassigned-view').hidden = false;
+        document.getElementById('modal-assigned-view').hidden = true;
+        
+        const select = document.getElementById('unassigned-device-select');
+        select.innerHTML = '<option value="">-- Chọn thiết bị --</option>';
+        devices.forEach(d => {
+            if (!d.seat_id) {
+                const opt = document.createElement('option');
+                opt.value = d.id;
+                opt.textContent = `${d.hostname || 'Unknown'} (${d.id})`;
+                select.appendChild(opt);
+            }
+        });
+    }
+    seatModal.hidden = false;
+}
+
+function closeSeatModal() { seatModal.hidden = true; }
+
+function assignSeat() {
+    const devId = document.getElementById('unassigned-device-select').value;
+    if (!devId) return alert('Vui lòng chọn một thiết bị!');
+    doAssignSeat(devId, currentSeatId);
+}
+
+async function doAssignSeat(deviceId, seatId) {
+    try {
+        const response = await fetch(`/api/admin/devices/${encodeURIComponent(deviceId)}/seat`, {
+            method: 'POST',
+            headers: { ...headers(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ seat_id: seatId })
+        });
+        if (!response.ok) throw new Error(await response.text());
+        closeSeatModal();
+        fetchDevices(); // Reload to reflect changes
+    } catch (e) {
+        alert('Lỗi cập nhật ghế: ' + e);
+    }
+}
