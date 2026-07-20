@@ -58,7 +58,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
     try {
       final supportDir = await getApplicationSupportDirectory();
       final userDataPath = '${supportDir.path}\\rustdesk_webview';
-      await WebviewController.initializeEnvironment(additionalArguments: '--user-data-dir="$userDataPath"');
+      await WebviewController.initializeEnvironment(userDataPath: userDataPath);
       await _controller.initialize();
       _webMessageSubscription = _controller.webMessage.listen((message) {
         if (message == 'close-chat') _closeWindow();
