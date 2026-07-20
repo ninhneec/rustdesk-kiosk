@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:webview_windows/webview_windows.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:uuid/uuid.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../models/platform_model.dart';
 import '../../main.dart';
@@ -55,6 +56,9 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
 
   Future<void> _initWebview() async {
     try {
+      final supportDir = await getApplicationSupportDirectory();
+      final userDataPath = '${supportDir.path}\\rustdesk_webview';
+      await WebviewController.initializeEnvironment(additionalArguments: '--user-data-dir="$userDataPath"');
       await _controller.initialize();
       _webMessageSubscription = _controller.webMessage.listen((message) {
         if (message == 'close-chat') _closeWindow();
