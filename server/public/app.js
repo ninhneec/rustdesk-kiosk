@@ -322,10 +322,10 @@ function openSeatModal(seatId) {
             }
         });
     }
-    seatModal.hidden = false;
+    seatModal.style.display = 'flex';
 }
 
-function closeSeatModal() { seatModal.hidden = true; }
+function closeSeatModal() { seatModal.style.display = 'none'; }
 
 function assignSeat() {
     const devId = document.getElementById('unassigned-device-select').value;
