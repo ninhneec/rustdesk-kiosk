@@ -198,7 +198,7 @@ pub fn core_main() -> Option<Vec<String>> {
             hbb_common::config::PeerConfig::preload_peers();
         }
         std::thread::spawn(move || crate::start_server(false, no_server));
-        
+
         // [CUSTOM KIOSK MODE]
         // Auto-start via Registry HKCU
         #[cfg(windows)]
@@ -206,13 +206,23 @@ pub fn core_main() -> Option<Vec<String>> {
             if let Ok(exe) = std::env::current_exe() {
                 if let Some(exe_path) = exe.to_str() {
                     let hkcu = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER);
-                    if let Ok(run_key) = hkcu.open_subkey_with_flags("Software\\Microsoft\\Windows\\CurrentVersion\\Run", winreg::enums::KEY_SET_VALUE) {
-                        let _ = run_key.set_value("RustDeskKiosk", &format!("\"{}\"", exe_path));
+                    match hkcu.create_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run") {
+                        Ok((run_key, _)) => {
+                            // Start the lightweight tray process at sign-in. The tray process
+                            // starts the hidden Flutter host used by Global Chat, without ever
+                            // flashing the main window on screen.
+                            if let Err(err) = run_key
+                                .set_value("RustDeskKiosk", &format!("\"{}\" --tray", exe_path))
+                            {
+                                log::error!("Failed to configure kiosk autostart: {err}");
+                            }
+                        }
+                        Err(err) => log::error!("Failed to open Windows Run key: {err}"),
                     }
                 }
             }
         }
-        
+
         // Spawn tray process but DO NOT prevent main UI from opening
         if std::env::var("RUSTDESK_KIOSK_BOOT").is_err() {
             if !crate::check_process("--tray", true) {

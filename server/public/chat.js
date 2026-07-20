@@ -7,6 +7,17 @@ const composer = document.getElementById('composer');
 const input = document.getElementById('message');
 const status = document.getElementById('status');
 const cursors = { boss: 0, global: 0 };
+const closeButton = document.getElementById('close-chat');
+
+function requestNativeClose() {
+  if (window.chrome?.webview) window.chrome.webview.postMessage('close-chat');
+  else window.close();
+}
+
+closeButton.addEventListener('click', requestNativeClose);
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') requestNativeClose();
+});
 
 if (!deviceId || !deviceToken) {
   status.textContent = 'Thiếu thông tin xác thực của máy. Hãy mở bảng chat từ RustDesk.';

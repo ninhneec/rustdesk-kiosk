@@ -8,7 +8,7 @@
 </head>
 <body>
   <main class="chat-shell">
-    <header><div><h1>Hỗ trợ</h1><span id="status">Đang kết nối…</span></div><select id="channel" aria-label="Kênh chat"><option value="boss">Nhắn boss</option><option value="global">Kênh chung</option></select></header>
+    <header><div><h1>Hỗ trợ</h1><span id="status">Đang kết nối…</span></div><div class="header-actions"><select id="channel" aria-label="Kênh chat"><option value="boss">Nhắn boss</option><option value="global">Kênh chung</option></select><button id="close-chat" type="button" title="Đóng (Esc)" aria-label="Đóng cửa sổ chat">×</button></div></header>
     <section id="messages" aria-live="polite"></section>
     <form id="composer"><input id="message" maxlength="2000" autocomplete="off" placeholder="Nhập tin nhắn…"><button type="submit">Gửi</button></form>
   </main>

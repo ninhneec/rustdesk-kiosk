@@ -7,7 +7,12 @@ const deviceCount = document.getElementById('device-count');
 const searchInput = document.getElementById('search-input');
 const refreshBtn = document.getElementById('refresh-btn');
 const toast = document.getElementById('toast');
+const alertPanel = document.getElementById('alert-panel');
+const alertList = document.getElementById('alert-list');
+const alertCount = document.getElementById('alert-count');
 let devices = [];
+let alerts = [];
+let refreshTimer;
 
 async function fetchDevices() {
   try {
@@ -19,6 +24,57 @@ async function fetchDevices() {
     console.error('Could not load devices:', error);
     deviceList.innerHTML = '<tr><td colspan="6" class="error">Không thể tải thiết bị. Kiểm tra ADMIN_TOKEN.</td></tr>';
   }
+}
+
+async function fetchAlerts() {
+  try {
+    const response = await fetch('/api/admin/chat/alerts', { headers: headers() });
+    if (!response.ok) throw new Error(await response.text());
+    alerts = await response.json();
+    renderAlerts();
+  } catch (error) {
+    console.error('Could not load chat alerts:', error);
+  }
+}
+
+function renderAlerts() {
+  alertList.replaceChildren();
+  alertPanel.hidden = alerts.length === 0;
+  alertCount.textContent = alerts.length ? `${alerts.length} chưa xử lý` : '';
+  alerts.forEach((alert) => {
+    const item = document.createElement('article');
+    item.className = 'chat-alert';
+    const details = document.createElement('div');
+    const title = document.createElement('strong');
+    title.textContent = `${alert.hostname} · ID ${alert.device_id}`;
+    const message = document.createElement('p');
+    message.textContent = alert.body;
+    const meta = document.createElement('small');
+    meta.textContent = `Từ khóa: “${alert.matched_keyword}” · ${new Date(`${alert.created_at}Z`).toLocaleString('vi-VN')}`;
+    details.append(title, message, meta);
+    const actions = document.createElement('div');
+    const chatButton = document.createElement('button');
+    chatButton.className = 'btn-chat';
+    chatButton.textContent = 'Mở chat';
+    chatButton.addEventListener('click', () => openBossChat({ id: alert.device_id, hostname: alert.hostname }));
+    const acknowledgeButton = document.createElement('button');
+    acknowledgeButton.className = 'btn-acknowledge';
+    acknowledgeButton.textContent = 'Đã xử lý';
+    acknowledgeButton.addEventListener('click', () => acknowledgeAlert(alert.id));
+    actions.append(chatButton, acknowledgeButton);
+    item.append(details, actions);
+    alertList.append(item);
+  });
+}
+
+async function acknowledgeAlert(alertId) {
+  const response = await fetch(`/api/admin/chat/alerts/${alertId}/acknowledge`, {
+    method: 'POST',
+    headers: headers(),
+  });
+  if (!response.ok) return;
+  alerts = alerts.filter((alert) => alert.id !== alertId);
+  renderAlerts();
 }
 
 function renderDevices(data) {
@@ -56,9 +112,15 @@ searchInput.addEventListener('input', () => {
   const keyword = searchInput.value.toLowerCase();
   renderDevices(devices.filter((device) => `${device.hostname} ${device.id}`.toLowerCase().includes(keyword)));
 });
-refreshBtn.addEventListener('click', fetchDevices);
-fetchDevices();
-setInterval(fetchDevices, 30000);
+async function refreshDashboard() {
+  clearTimeout(refreshTimer);
+  if (!document.hidden) await Promise.all([fetchDevices(), fetchAlerts()]);
+  refreshTimer = setTimeout(refreshDashboard, document.hidden ? 30000 : 5000);
+}
+
+refreshBtn.addEventListener('click', refreshDashboard);
+document.addEventListener('visibilitychange', refreshDashboard);
+refreshDashboard();
 
 window.copyToClipboard = async (value) => {
   await navigator.clipboard.writeText(value);

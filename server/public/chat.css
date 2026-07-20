@@ -3,6 +3,9 @@
 body { margin: 0; min-height: 100vh; background: linear-gradient(145deg, #101827, #18233a); }
 .chat-shell { height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
 header { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border-bottom: 1px solid #2c3a55; background: rgba(15, 23, 42, .86); }
+.header-actions { display: flex; align-items: center; gap: 8px; }
+#close-chat { width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px; background: #334155; color: #fff; font-size: 24px; line-height: 1; cursor: pointer; }
+#close-chat:hover, #close-chat:focus-visible { background: #ef4444; outline: 2px solid #fca5a5; }
 h1 { font-size: 16px; margin: 0 0 3px; } #status { color: #9fb0cc; font-size: 12px; }
 select, input, button { border: 0; border-radius: 8px; font: inherit; } select, input { background: #22304a; color: inherit; padding: 9px 10px; }
 #messages { overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }

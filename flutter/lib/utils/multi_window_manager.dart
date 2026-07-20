@@ -406,7 +406,9 @@ class RustDeskMultiWindowManager {
     // Resize and position to bottom right
     final windowController = WindowController.fromWindowId(windowId);
     windowController.setFrame(const Offset(0, 0) & const Size(350, 500));
-    windowController.showTitleBar(false);
+    // Keep the native title bar as a reliable mouse/Alt+F4 fallback. The chat
+    // page also exposes its own close button and Escape shortcut via WebView IPC.
+    windowController.showTitleBar(true);
     return MultiWindowCallResult(windowId, null);
   }
 

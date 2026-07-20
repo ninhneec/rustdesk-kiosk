@@ -6,6 +6,12 @@ const sqlite3 = require('sqlite3').verbose();
 const app = express();
 const port = Number(process.env.PORT || 3000);
 const adminToken = process.env.ADMIN_TOKEN || '';
+const alertKeywords = [...new Set(
+  (process.env.ALERT_KEYWORDS || 'khẩn cấp,cứu,nguy hiểm,help,sos')
+    .split(',')
+    .map((keyword) => keyword.trim().normalize('NFC').toLocaleLowerCase('vi'))
+    .filter(Boolean),
+)].sort((left, right) => right.length - left.length);
 const db = new sqlite3.Database(path.join(__dirname, 'devices.db'));
 
 app.disable('x-powered-by');
@@ -42,6 +48,16 @@ db.serialize(() => {
   )`);
   db.run('CREATE INDEX IF NOT EXISTS idx_chat_messages_channel_created ON chat_messages(channel, created_at, id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_chat_messages_recipient_created ON chat_messages(recipient_id, created_at, id)');
+  db.run(`CREATE TABLE IF NOT EXISTS chat_alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id INTEGER NOT NULL UNIQUE,
+    device_id TEXT NOT NULL,
+    matched_keyword TEXT NOT NULL,
+    acknowledged INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(message_id) REFERENCES chat_messages(id)
+  )`);
+  db.run('CREATE INDEX IF NOT EXISTS idx_chat_alerts_active ON chat_alerts(acknowledged, id)');
 });
 
 function fail(res, status, error) {
@@ -68,6 +84,30 @@ function safeEqual(left, right) {
   const leftBuffer = Buffer.from(left || '');
   const rightBuffer = Buffer.from(right || '');
   return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function matchedAlertKeyword(body) {
+  const normalized = body.normalize('NFC').toLocaleLowerCase('vi');
+  return alertKeywords.find((keyword) => {
+    const start = normalized.indexOf(keyword);
+    if (start < 0) return false;
+    const before = normalized[start - 1] || '';
+    const after = normalized[start + keyword.length] || '';
+    const isWordCharacter = (character) => /[\p{L}\p{N}]/u.test(character);
+    return !isWordCharacter(before) && !isWordCharacter(after);
+  }) || null;
+}
+
+function createChatAlert(messageId, senderId, body) {
+  const keyword = matchedAlertKeyword(body);
+  if (!keyword || senderId === 'boss') return;
+  db.run(
+    'INSERT OR IGNORE INTO chat_alerts (message_id, device_id, matched_keyword) VALUES (?, ?, ?)',
+    [messageId, senderId, keyword],
+    (err) => {
+      if (err) console.error('Could not create chat alert:', err);
+    },
+  );
 }
 
 function requireAdmin(req, res, next) {
@@ -148,6 +188,7 @@ app.post('/api/chat/messages', requireDevice, (req, res) => {
     [channel, req.deviceId, recipient, body],
     function onMessageSaved(err) {
       if (err) return fail(res, 500, 'Database error');
+      createChatAlert(this.lastID, req.deviceId, body);
       res.status(201).json({ id: this.lastID });
     },
   );
@@ -183,7 +224,37 @@ app.post('/api/admin/chat/messages', requireAdmin, (req, res) => {
   );
 });
 
+app.get('/api/admin/chat/alerts', requireAdmin, (req, res) => {
+  const afterId = Math.max(0, Number.parseInt(req.query.after_id, 10) || 0);
+  db.all(
+    `SELECT a.id, a.message_id, a.device_id, a.matched_keyword,
+            a.acknowledged, a.created_at, m.channel, m.body,
+            COALESCE(d.hostname, a.device_id) AS hostname
+       FROM chat_alerts a
+       JOIN chat_messages m ON m.id = a.message_id
+       LEFT JOIN devices d ON d.id = a.device_id
+      WHERE a.id > ? AND a.acknowledged = 0
+      ORDER BY a.id DESC LIMIT 100`,
+    [afterId],
+    (err, rows) => {
+      if (err) return fail(res, 500, 'Database error');
+      res.json(rows);
+    },
+  );
+});
+
+app.post('/api/admin/chat/alerts/:id/acknowledge', requireAdmin, (req, res) => {
+  const alertId = Math.max(0, Number.parseInt(req.params.id, 10) || 0);
+  if (!alertId) return fail(res, 400, 'Invalid alert id');
+  db.run('UPDATE chat_alerts SET acknowledged = 1 WHERE id = ?', [alertId], function onAcknowledged(err) {
+    if (err) return fail(res, 500, 'Database error');
+    if (this.changes === 0) return fail(res, 404, 'Alert not found');
+    res.json({ success: true });
+  });
+});
+
 app.listen(port, () => {
   if (!adminToken) console.warn('ADMIN_TOKEN is not set: dashboard data and boss chat are disabled.');
   console.log(`RustDesk kiosk API listening on port ${port}`);
+  console.log(`Chat alert keywords: ${alertKeywords.join(', ')}`);
 });

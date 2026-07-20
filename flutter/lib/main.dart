@@ -434,7 +434,9 @@ WindowOptions getHiddenTitleBarWindowOptions(
     size: size,
     center: center,
     backgroundColor: (isMacOS && isMainWindow) ? null : Colors.transparent,
-    skipTaskbar: false,
+    // The kiosk main window is only an invisible host for tray/IPC features.
+    // Keeping it off the taskbar avoids a blank taskbar button at startup.
+    skipTaskbar: isMainWindow,
     titleBarStyle: defaultTitleBarStyle,
     alwaysOnTop: alwaysOnTop,
   );

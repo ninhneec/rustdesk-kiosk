@@ -10,4 +10,10 @@ ADMIN_TOKEN='replace-with-a-long-random-value' PORT=3000 node index.js
 
 `ADMIN_TOKEN` is required for the dashboard and boss chat. It is never embedded in the RustDesk client. The RustDesk app stores a random per-device chat token locally, sends it during device registration, and uses it to access only that device's private conversation.
 
+`ALERT_KEYWORDS` optionally sets the comma-separated chat keywords that raise an admin dashboard alert. Its default value is `khẩn cấp,cứu,nguy hiểm,help,sos`. For example:
+
+```bash
+ALERT_KEYWORDS='khẩn cấp,cứu,help,sos' npm start
+```
+
 Keep port 3000 private behind a TLS proxy where possible, then configure the app's **API server** to the public HTTPS URL. Do not expose the Node service directly over HTTP: it carries unattended RustDesk passwords and chat credentials.

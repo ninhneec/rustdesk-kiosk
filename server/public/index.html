@@ -25,6 +25,13 @@
         </header>
 
         <main class="main-content">
+            <section id="alert-panel" class="alert-panel" hidden>
+                <div class="alert-panel-heading">
+                    <div><strong>Cảnh báo từ chat</strong><span id="alert-count"></span></div>
+                    <span>Thiết bị gửi từ khóa cần chú ý</span>
+                </div>
+                <div id="alert-list"></div>
+            </section>
             <div class="search-bar">
                 <input type="text" id="search-input" placeholder="Tìm kiếm theo Hostname hoặc ID...">
                 <button id="refresh-btn" class="btn-icon" title="Làm mới">
