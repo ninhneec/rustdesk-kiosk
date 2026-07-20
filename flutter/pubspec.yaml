@@ -42,7 +42,6 @@ dependencies:
     git:
       url: https://github.com/rustdesk-org/Dash-Chat-2
   draggable_float_widget: ^0.1.0
-  webview_windows: ^0.3.0
   settings_ui: ^2.0.2
   flutter_breadcrumb: ^1.0.1
   http: ^1.1.0
