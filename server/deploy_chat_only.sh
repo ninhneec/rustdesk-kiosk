@@ -55,6 +55,7 @@ pm2 startup
 
 # 4. Thiết lập Tường lửa (UFW)
 echo "[4/4] Mở Port tường lửa..."
+ufw allow 22/tcp # Port SSH
 ufw allow 3000/tcp # Port cho Web API Dashboard
 ufw --force enable
 
