@@ -79,6 +79,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
     if (windowId == null) return;
     _isClosing = true;
     try {
+      WindowController.fromWindowId(windowId).hide();
       await rustDeskWinManager.call(WindowType.Main, kWindowEventHide, {"id": windowId});
     } catch (error, stackTrace) {
       _isClosing = false;
