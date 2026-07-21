@@ -10,6 +10,9 @@ import 'package:http/http.dart' as http;
 
 import '../../models/platform_model.dart';
 import '../../main.dart';
+import '../../common.dart';
+import '../../consts.dart';
+import '../../utils/multi_window_manager.dart';
 
 class ChatMessage {
   final int id;
