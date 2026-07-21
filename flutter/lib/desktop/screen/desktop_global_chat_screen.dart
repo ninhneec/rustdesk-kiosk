@@ -64,6 +64,9 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
   void initState() {
     super.initState();
     DesktopMultiWindow.addListener(this);
+    if (kWindowId != null) {
+      WindowController.fromWindowId(kWindowId!).setPreventClose(true);
+    }
     _initChat();
   }
 
@@ -72,13 +75,11 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
     final windowId = kWindowId;
     if (windowId == null) return;
     _isClosing = true;
-    final controller = WindowController.fromWindowId(windowId);
     try {
-      await controller.setPreventClose(false);
-      await controller.close();
+      await rustDeskWinManager.call(WindowType.Main, kWindowEventHide, {"id": windowId});
     } catch (error, stackTrace) {
       _isClosing = false;
-      debugPrint('Failed to close Global Chat: $error\n$stackTrace');
+      debugPrint('Failed to hide Global Chat: $error\n$stackTrace');
     }
   }
 
