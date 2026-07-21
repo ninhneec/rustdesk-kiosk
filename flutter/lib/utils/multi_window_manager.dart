@@ -391,6 +391,7 @@ class RustDeskMultiWindowManager {
     for (final windowId in _globalChatWindows) {
       if (_activeWindows.contains(windowId)) {
         // Toggle OFF
+        WindowController.fromWindowId(windowId).hide();
         await call(WindowType.Main, kWindowEventHide, {"id": windowId});
         return MultiWindowCallResult(windowId, null);
       } else if (_inactiveWindows.contains(windowId)) {

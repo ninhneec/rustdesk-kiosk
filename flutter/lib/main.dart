@@ -185,6 +185,11 @@ void runMainApp(bool startService) async {
     // [CUSTOM KIOSK MODE]
     // Always hide the main window on startup
     windowManager.hide();
+    if (kBootArgs.isEmpty || kBootArgs.contains('--open-global-chat')) {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        rustDeskWinManager.newGlobalChat();
+      });
+    }
     // [/CUSTOM KIOSK MODE]
   });
 }
