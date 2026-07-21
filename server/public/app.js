@@ -1,7 +1,4 @@
-const adminToken = sessionStorage.getItem('rustdesk-admin-token') || window.prompt('Nhập ADMIN_TOKEN');
-if (adminToken) sessionStorage.setItem('rustdesk-admin-token', adminToken);
-
-const headers = () => ({ Authorization: `Bearer ${adminToken}` });
+const headers = () => ({});
 const deviceList = document.getElementById('device-list');
 const deviceCount = document.getElementById('device-count');
 const searchInput = document.getElementById('search-input');

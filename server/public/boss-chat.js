@@ -1,7 +1,6 @@
 const params = new URLSearchParams(window.location.search);
 const deviceId = params.get('device_id');
 const deviceName = params.get('hostname') || deviceId;
-const adminToken = sessionStorage.getItem('rustdesk-admin-token') || window.prompt('Nhập ADMIN_TOKEN');
 const channelSelect = document.getElementById('channel');
 const messages = document.getElementById('messages');
 const composer = document.getElementById('composer');
@@ -10,7 +9,7 @@ const status = document.getElementById('status');
 const cursors = { boss: 0, global: 0 };
 document.getElementById('title').textContent = deviceName || 'Thiếu thiết bị';
 
-const headers = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` });
+const headers = () => ({ 'Content-Type': 'application/json' });
 function appendMessage(message) {
   const item = document.createElement('article');
   item.className = `message ${message.sender_id === 'boss' ? 'outgoing' : ''}`;

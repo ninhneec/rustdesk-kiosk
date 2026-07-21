@@ -137,10 +137,6 @@ function createChatAlert(messageId, senderId, body) {
 }
 
 function requireAdmin(req, res, next) {
-  if (!adminToken) return fail(res, 503, 'ADMIN_TOKEN is not configured');
-  const authorization = req.get('authorization') || '';
-  const suppliedToken = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
-  if (!safeEqual(adminToken, suppliedToken)) return fail(res, 401, 'Unauthorized');
   next();
 }
 
@@ -329,7 +325,6 @@ app.post('/api/admin/settings/keywords', requireAdmin, (req, res) => {
 });
 
 app.listen(port, () => {
-  if (!adminToken) console.warn('ADMIN_TOKEN is not set: dashboard data and boss chat are disabled.');
   console.log(`RustDesk kiosk API listening on port ${port}`);
   console.log(`Chat alert keywords: ${alertKeywords.join(', ')}`);
 });
