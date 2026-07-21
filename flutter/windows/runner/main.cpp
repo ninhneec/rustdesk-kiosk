@@ -85,16 +85,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                     command_line_arguments.end(),
                     whitelist_param) != command_line_arguments.end();
     }
-      if (!allow_multiple_instances) {
-        if (command_line_arguments.empty()) {
-          // [CUSTOM KIOSK MODE] 
-          // Open global chat instead of showing the main window when clicking the shortcut
-          command_line_arguments.push_back("--open-global-chat");
-        }
-        // Dispatch command line arguments
-        DispatchToUniLinksDesktop(hwnd);
-        return EXIT_FAILURE;
-      }
+    if (!allow_multiple_instances) {
+      // Dispatch command line arguments
+      DispatchToUniLinksDesktop(hwnd);
+      return EXIT_FAILURE;
+    }
   }
 
   // Attach to console when present (e.g., 'flutter run') or create a

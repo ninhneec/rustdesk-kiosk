@@ -2264,7 +2264,9 @@ setEnvTerminalAdmin() {
 // uri link handler
 bool handleUriLink({List<String>? cmdArgs, Uri? uri, String? uriString}) {
   List<String>? args;
-  if (cmdArgs != null && cmdArgs.isNotEmpty) {
+  if (uriString == '--open-global-chat') {
+    args = ['--open-global-chat'];
+  } else if (cmdArgs != null && cmdArgs.isNotEmpty) {
     args = cmdArgs;
     // rustdesk <uri link>
     if (args[0].startsWith(bind.mainUriPrefixSync())) {

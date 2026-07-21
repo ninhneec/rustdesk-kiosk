@@ -122,7 +122,7 @@ fn make_tray() -> hbb_common::ResultType<()> {
                         if msg.message == WM_HOTKEY && msg.wParam == 1 {
                             // Trigger Global Chat
                             let _ = std::thread::spawn(|| {
-                                crate::run_me::<&str>(vec![]).ok();
+                                crate::run_me(vec!["--open-global-chat"]).ok();
                             });
                         }
                         TranslateMessage(&msg);
@@ -192,7 +192,7 @@ fn make_tray() -> hbb_common::ResultType<()> {
         if let Ok(event) = menu_channel.try_recv() {
             // [CUSTOM KIOSK MODE]
             if event.id == support_i.id() {
-                crate::run_me::<&str>(vec![]).ok();
+                crate::run_me(vec!["--open-global-chat"]).ok();
             }
             // [/CUSTOM KIOSK MODE]
             else if let Some(quit_i) = &quit_i {

@@ -183,13 +183,21 @@ void runMainApp(bool startService) async {
     setResizable(!bind.isIncomingOnly());
   }).then((_) {
     // [CUSTOM KIOSK MODE]
-    // Always hide the main window on startup
-    windowManager.hide();
-    if (kBootArgs.isEmpty || kBootArgs.contains('--open-global-chat')) {
-      Future.delayed(const Duration(milliseconds: 500), () {
-        rustDeskWinManager.newGlobalChat();
-      });
-    }
+      if (kBootArgs.contains('--silent-start')) {
+        // System boot: hide main window, do not open anything
+        windowManager.hide();
+      } else if (kBootArgs.contains('--open-global-chat')) {
+        // Opened via hotkey or tray when app was completely closed
+        windowManager.hide();
+        Future.delayed(const Duration(milliseconds: 500), () {
+          rustDeskWinManager.newGlobalChat();
+        });
+      } else {
+        // Not a silent start (e.g. user clicked desktop shortcut)
+        if (!handledByUniLinks) {
+          windowManager.show();
+        }
+      }
     // [/CUSTOM KIOSK MODE]
   });
 }
