@@ -99,17 +99,7 @@ fn make_tray() -> hbb_common::ResultType<()> {
 
     let open_func = move || {
         // [CUSTOM KIOSK MODE]
-        let _ = std::thread::spawn(|| {
-            hbb_common::tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap()
-                .block_on(async {
-                    if let Ok(mut c) = crate::ipc::connect(1000, "").await {
-                        let _ = c.send(&crate::ipc::Data::OpenGlobalChat).await;
-                    }
-                });
-        });
+        crate::run_me::<&str>(vec![]).ok();
         // [/CUSTOM KIOSK MODE]
     };
 
@@ -132,15 +122,7 @@ fn make_tray() -> hbb_common::ResultType<()> {
                         if msg.message == WM_HOTKEY && msg.wParam == 1 {
                             // Trigger Global Chat
                             let _ = std::thread::spawn(|| {
-                                hbb_common::tokio::runtime::Builder::new_current_thread()
-                                    .enable_all()
-                                    .build()
-                                    .unwrap()
-                                    .block_on(async {
-                                        if let Ok(mut c) = crate::ipc::connect(1000, "").await {
-                                            let _ = c.send(&crate::ipc::Data::OpenGlobalChat).await;
-                                        }
-                                    });
+                                crate::run_me::<&str>(vec![]).ok();
                             });
                         }
                         TranslateMessage(&msg);
@@ -210,17 +192,7 @@ fn make_tray() -> hbb_common::ResultType<()> {
         if let Ok(event) = menu_channel.try_recv() {
             // [CUSTOM KIOSK MODE]
             if event.id == support_i.id() {
-                let _ = std::thread::spawn(|| {
-                    hbb_common::tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .unwrap()
-                        .block_on(async {
-                            if let Ok(mut c) = crate::ipc::connect(1000, "").await {
-                                let _ = c.send(&crate::ipc::Data::OpenGlobalChat).await;
-                            }
-                        });
-                });
+                crate::run_me::<&str>(vec![]).ok();
             }
             // [/CUSTOM KIOSK MODE]
             else if let Some(quit_i) = &quit_i {
