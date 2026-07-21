@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -93,15 +94,35 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
         'X-Device-Token': _chatToken,
       };
 
+  Future<void> _registerDevice(String hostname) async {
+    try {
+      final uri = Uri.parse('$_apiServer/api/device/save-password');
+      await http.post(uri,
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'id': _deviceId,
+            'pass': '',
+            'hostname': hostname,
+            'chat_token': _chatToken,
+          }));
+      debugPrint('Device registered: $_deviceId ($hostname)');
+    } catch (e) {
+      debugPrint('Device registration error: $e');
+    }
+  }
+
   Future<void> _initChat() async {
     try {
       _deviceId = await bind.mainGetMyId();
       _chatToken = bind.mainGetLocalOption(key: 'global-chat-token');
-      if (_chatToken.isEmpty) {
-        _chatToken = const Uuid().v4();
+      if (_chatToken.isEmpty || _chatToken.contains('-')) {
+        _chatToken = const Uuid().v4().replaceAll('-', '');
         await bind.mainSetLocalOption(
             key: 'global-chat-token', value: _chatToken);
       }
+
+      // Register device with server so chat_token is stored in DB
+      await _registerDevice(Platform.localHostname);
 
       await _loadMessages(reset: true);
 
