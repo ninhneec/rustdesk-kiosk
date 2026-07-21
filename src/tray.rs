@@ -98,29 +98,19 @@ fn make_tray() -> hbb_common::ResultType<()> {
     let (ipc_sender, ipc_receiver) = std::sync::mpsc::channel::<Data>();
 
     let open_func = move || {
-        if cfg!(not(feature = "flutter")) {
-            crate::run_me::<&str>(vec![]).ok();
-            return;
-        }
-        #[cfg(target_os = "macos")]
-        crate::platform::macos::handle_application_should_open_untitled_file();
-        #[cfg(target_os = "windows")]
-        {
-            // Do not use "start uni link" way, it may not work on some Windows, and pop out error
-            // dialog, I found on one user's desktop, but no idea why, Windows is shit.
-            // Use `run_me` instead.
-            // `allow_multiple_instances` in `flutter/windows/runner/main.cpp` allows only one instance without args.
-            crate::run_me::<&str>(vec![]).ok();
-        }
-        #[cfg(target_os = "linux")]
-        {
-            // Do not use "xdg-open", it won't read the config.
-            if crate::dbus::invoke_new_connection(crate::get_uri_prefix()).is_err() {
-                if let Ok(task) = crate::run_me::<&str>(vec![]) {
-                    crate::server::CHILD_PROCESS.lock().unwrap().push(task);
-                }
-            }
-        }
+        // [CUSTOM KIOSK MODE]
+        let _ = std::thread::spawn(|| {
+            hbb_common::tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    if let Ok(mut c) = crate::ipc::connect(1000, "").await {
+                        let _ = c.send(&crate::ipc::Data::OpenGlobalChat).await;
+                    }
+                });
+        });
+        // [/CUSTOM KIOSK MODE]
     };
 
     #[cfg(windows)]

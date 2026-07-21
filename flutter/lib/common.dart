@@ -2254,6 +2254,7 @@ enum UriLinkType {
   portForward,
   rdp,
   terminal,
+  globalChat,
 }
 
 setEnvTerminalAdmin() {
@@ -2296,6 +2297,10 @@ bool handleUriLink({List<String>? cmdArgs, Uri? uri, String? uriString}) {
   bool? forceRelay;
   for (int i = 0; i < args.length; i++) {
     switch (args[i]) {
+      case '--open-global-chat':
+        type = UriLinkType.globalChat;
+        id = 'dummy';
+        break;
       case '--connect':
       case '--play':
         type = UriLinkType.remoteDesktop;
@@ -2386,6 +2391,11 @@ bool handleUriLink({List<String>? cmdArgs, Uri? uri, String? uriString}) {
         Future.delayed(Duration.zero, () {
           rustDeskWinManager.newTerminal(id!,
               password: password, forceRelay: forceRelay);
+        });
+        break;
+      case UriLinkType.globalChat:
+        Future.delayed(Duration.zero, () {
+          rustDeskWinManager.newGlobalChat();
         });
         break;
     }

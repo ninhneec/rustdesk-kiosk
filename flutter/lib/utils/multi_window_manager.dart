@@ -390,7 +390,13 @@ class RustDeskMultiWindowManager {
   Future<MultiWindowCallResult> newGlobalChat() async {
     for (final windowId in _globalChatWindows) {
       if (_activeWindows.contains(windowId)) {
+        // Toggle OFF
+        await call(WindowType.Main, kWindowEventHide, {"id": windowId});
+        return MultiWindowCallResult(windowId, null);
+      } else if (_inactiveWindows.contains(windowId)) {
+        // Toggle ON
         WindowController.fromWindowId(windowId).show();
+        registerActiveWindow(windowId);
         return MultiWindowCallResult(windowId, null);
       }
     }
@@ -406,9 +412,8 @@ class RustDeskMultiWindowManager {
     // Resize and position to bottom right
     final windowController = WindowController.fromWindowId(windowId);
     windowController.setFrame(const Offset(0, 0) & const Size(350, 500));
-    // Keep the native title bar as a reliable mouse/Alt+F4 fallback. The chat
-    // page also exposes its own close button and Escape shortcut via WebView IPC.
-    windowController.showTitleBar(true);
+    windowController.showTitleBar(false);
+    windowController.show();
     return MultiWindowCallResult(windowId, null);
   }
 
