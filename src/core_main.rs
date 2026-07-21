@@ -92,6 +92,10 @@ pub fn core_main() -> Option<Vec<String>> {
             #[cfg(target_os = "linux")]
             hbb_common::allow_err!(crate::platform::check_autostart_config());
             hbb_common::allow_err!(crate::run_me(vec!["--tray"]));
+            // [CUSTOM KIOSK MODE] Exit the first instance to prevent race condition.
+            // The tray process will spawn the background UI process correctly.
+            #[cfg(target_os = "windows")]
+            return None;
         }
     }
     #[cfg(not(debug_assertions))]
