@@ -387,13 +387,21 @@ class RustDeskMultiWindowManager {
     return MultiWindowCallResult(windowId, null);
   }
 
-  Future<MultiWindowCallResult> newGlobalChat() async {
+  Future<MultiWindowCallResult> openGlobalChat({bool toggle = true}) async {
     for (final windowId in _globalChatWindows) {
       if (_activeWindows.contains(windowId)) {
-        // Toggle OFF
-        WindowController.fromWindowId(windowId).hide();
-        await call(WindowType.Main, kWindowEventHide, {"id": windowId});
-        return MultiWindowCallResult(windowId, null);
+        if (toggle) {
+          // Toggle OFF
+          WindowController.fromWindowId(windowId).hide();
+          await call(WindowType.Main, kWindowEventHide, {"id": windowId});
+          return MultiWindowCallResult(windowId, null);
+        } else {
+          // Force Show & Focus
+          final wc = WindowController.fromWindowId(windowId);
+          wc.show();
+          wc.focus();
+          return MultiWindowCallResult(windowId, null);
+        }
       } else if (_inactiveWindows.contains(windowId)) {
         // Toggle ON
         final wc = WindowController.fromWindowId(windowId);
@@ -412,12 +420,16 @@ class RustDeskMultiWindowManager {
     final windowId = await newSessionWindow(
         WindowType.GlobalChat, "Global Chat", msg, _globalChatWindows, false);
     
-    // Resize and position to bottom right
     final windowController = WindowController.fromWindowId(windowId);
-    windowController.setFrame(const Offset(0, 0) & const Size(350, 500));
     windowController.showTitleBar(false);
+    windowController.center();
     windowController.show();
+    windowController.focus();
     return MultiWindowCallResult(windowId, null);
+  }
+
+  Future<MultiWindowCallResult> newGlobalChat() async {
+    return openGlobalChat(toggle: true);
   }
 
   Future<MultiWindowCallResult> call(

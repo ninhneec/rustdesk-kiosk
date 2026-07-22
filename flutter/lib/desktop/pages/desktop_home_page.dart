@@ -409,7 +409,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           ),
           onPressed: () async {
             try {
-              await rustDeskWinManager.newGlobalChat();
+              await rustDeskWinManager.openGlobalChat(toggle: false);
             } catch (error, stackTrace) {
               debugPrint('Failed to open support chat: $error\n$stackTrace');
             }

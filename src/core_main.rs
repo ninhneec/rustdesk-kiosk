@@ -87,13 +87,11 @@ pub fn core_main() -> Option<Vec<String>> {
         // Because `--server` process is the System user's process. We can't get the arguments in `check_process()`.
         // We can assume that self service running means the server is also running on Windows.
         #[cfg(target_os = "windows")]
-        let should_check_start_tray = true; // [CUSTOM KIOSK MODE] Always start tray
+        let should_check_start_tray = crate::check_process("--server", false);
         if should_check_start_tray && !crate::check_process("--tray", true) {
             #[cfg(target_os = "linux")]
             hbb_common::allow_err!(crate::platform::check_autostart_config());
             hbb_common::allow_err!(crate::run_me(vec!["--tray"]));
-            // [CUSTOM KIOSK MODE] Wait, we actually want the first instance to continue
-            // and act as the background UI process.
             #[cfg(target_os = "windows")]
             {}
         }
