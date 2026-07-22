@@ -113,13 +113,13 @@ fn dispatch_global_chat_trigger() {
     {
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
-        use winapi::um::winuser::{FindWindowW, SendMessageW, WM_COPYDATA, COPYDATASTRUCT};
+        use winapi::um::winuser::{FindWindowW, IsWindowVisible, SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW};
 
         let class_name: Vec<u16> = OsStr::new("FLUTTER_RUNNER_WIN32_WINDOW")
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();
-        let window_name: Vec<u16> = OsStr::new("RustDesk")
+        let window_name: Vec<u16> = OsStr::new("RustDesk - Support Chat")
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();
@@ -127,18 +127,18 @@ fn dispatch_global_chat_trigger() {
         unsafe {
             let hwnd = FindWindowW(class_name.as_ptr(), window_name.as_ptr());
             if !hwnd.is_null() {
-                let msg_bytes = "--open-global-chat\0".as_bytes();
-                let mut cds = COPYDATASTRUCT {
-                    dwData: 0,
-                    cbData: msg_bytes.len() as u32,
-                    lpData: msg_bytes.as_ptr() as *mut _,
-                };
-                SendMessageW(hwnd, WM_COPYDATA, 0, &mut cds as *mut _ as _);
+                // The chat owns its own process and stays alive while hidden.
+                // A hotkey always restores it; it never depends on the main UI.
+                if IsWindowVisible(hwnd) == 0 {
+                    ShowWindow(hwnd, SW_SHOW);
+                }
+                ShowWindow(hwnd, SW_RESTORE);
+                SetForegroundWindow(hwnd);
                 return;
             }
         }
     }
-    let _ = crate::run_me(vec!["--open-global-chat"]);
+    let _ = crate::run_me(vec!["--global-chat"]);
 }
 
     // [CUSTOM KIOSK MODE]

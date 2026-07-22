@@ -116,6 +116,11 @@ Future<void> main(List<String> args) async {
     desktopType = DesktopType.cm;
     await windowManager.ensureInitialized();
     runConnectionManagerScreen();
+  } else if (args.contains('--global-chat')) {
+    desktopType = DesktopType.main;
+    await windowManager.ensureInitialized();
+    windowManager.setPreventClose(true);
+    runStandaloneGlobalChat();
   } else if (args.contains('--install')) {
     runInstallPage();
   } else {
@@ -127,6 +132,27 @@ Future<void> main(List<String> args) async {
     }
     runMainApp(true);
   }
+}
+
+void runStandaloneGlobalChat() async {
+  await initEnv(kAppTypeMain);
+  _runApp(
+    'RustDesk - Support Chat',
+    const DesktopGlobalChatScreen(),
+    ThemeMode.dark,
+  );
+  final options = getHiddenTitleBarWindowOptions(
+    size: const Size(360, 540),
+    center: true,
+    alwaysOnTop: true,
+  );
+  await windowManager.waitUntilReadyToShow(options, () async {
+    await windowManager.setTitle('RustDesk - Support Chat');
+    await windowManager.setMinimumSize(const Size(320, 420));
+    await windowManager.show();
+    await windowManager.focus();
+    await windowManager.setOpacity(1);
+  });
 }
 
 Future<void> initEnv(String appType) async {

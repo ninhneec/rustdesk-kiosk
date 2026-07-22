@@ -4,15 +4,11 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:desktop_multi_window/desktop_multi_window.dart';
+import 'package:window_manager/window_manager.dart';
 import 'package:uuid/uuid.dart';
 import 'package:http/http.dart' as http;
 
 import '../../models/platform_model.dart';
-import '../../main.dart';
-import '../../common.dart';
-import '../../consts.dart';
-import '../../utils/multi_window_manager.dart';
 
 class ChatMessage {
   final int id;
@@ -46,8 +42,7 @@ class DesktopGlobalChatScreen extends StatefulWidget {
 }
 
 class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
-    with MultiWindowListener {
-  bool _isClosing = false;
+    with WindowListener {
   bool _isLoading = true;
   String _errorMsg = '';
 
@@ -66,19 +61,15 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
   @override
   void initState() {
     super.initState();
-    DesktopMultiWindow.addListener(this);
-    if (kWindowId != null) {
-      WindowController.fromWindowId(kWindowId!).setPreventClose(true);
-    }
+    windowManager.addListener(this);
+    windowManager.setPreventClose(true);
     _initChat();
   }
 
   Future<void> _closeWindow() async {
-    final windowId = kWindowId;
-    if (windowId == null) return;
     try {
-      await WindowController.fromWindowId(windowId).hide();
-      await rustDeskWinManager.call(WindowType.Main, kWindowEventHide, {"id": windowId});
+      // Keep this independent process alive so the global hotkey can restore it.
+      await windowManager.hide();
     } catch (error, stackTrace) {
       debugPrint('Failed to hide Global Chat: $error\n$stackTrace');
     }
@@ -87,7 +78,6 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
   @override
   void onWindowClose() {
     _closeWindow();
-    super.onWindowClose();
   }
 
   Map<String, String> get _headers => {
@@ -224,10 +214,10 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
 
   @override
   void dispose() {
+    windowManager.removeListener(this);
     _pollTimer?.cancel();
     _inputController.dispose();
     _scrollController.dispose();
-    DesktopMultiWindow.removeListener(this);
     super.dispose();
   }
 
@@ -270,9 +260,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
   Widget _buildHeader() {
     return GestureDetector(
       onPanStart: (_) {
-        if (kWindowId != null) {
-          WindowController.fromWindowId(kWindowId!).startDragging();
-        }
+        windowManager.startDragging();
       },
       child: Container(
         height: 48,

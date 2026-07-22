@@ -15,7 +15,7 @@ typedef char** (*FUNC_RUSTDESK_CORE_MAIN)(int*);
 typedef void (*FUNC_RUSTDESK_FREE_ARGS)( char**, int);
 typedef int (*FUNC_RUSTDESK_GET_APP_NAME)(wchar_t*, int);
 /// Note: `--server`, `--service` are already handled in [core_main.rs].
-const std::vector<std::string> parameters_white_list = {"--install", "--cm", "multi_window"};
+const std::vector<std::string> parameters_white_list = {"--install", "--cm", "--global-chat", "multi_window"};
 
 const wchar_t* getWindowClassName();
 
@@ -72,6 +72,19 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     }
   }
 
+  const bool requests_global_chat =
+      std::find(command_line_arguments.begin(), command_line_arguments.end(),
+                "--global-chat") != command_line_arguments.end();
+  if (requests_global_chat) {
+    HWND chat_hwnd =
+        ::FindWindowW(getWindowClassName(), L"RustDesk - Support Chat");
+    if (chat_hwnd != NULL) {
+      ::ShowWindow(chat_hwnd, SW_RESTORE);
+      ::SetForegroundWindow(chat_hwnd);
+      return EXIT_SUCCESS;
+    }
+  }
+
   // Uri links dispatch
   HWND hwnd = ::FindWindowW(getWindowClassName(), app_name.c_str());
   if (hwnd != NULL) {
@@ -122,6 +135,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   if (!command_line_arguments.empty() && command_line_arguments.front().compare(0, installParam.size(), installParam.c_str()) == 0) {
     is_install_page = true;
   }
+  const bool is_global_chat = requests_global_chat;
 
   command_line_arguments.insert(command_line_arguments.end(), rust_args.begin(), rust_args.end());
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
@@ -148,6 +162,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     window_title = app_name + L" - Connection Manager";
   } else if (is_install_page) {
     window_title = app_name + L" - Install";
+  } else if (is_global_chat) {
+    // Stable title used by the tray/hotkey process to find this independent window.
+    window_title = L"RustDesk - Support Chat";
   } else {
     window_title = app_name;
   }

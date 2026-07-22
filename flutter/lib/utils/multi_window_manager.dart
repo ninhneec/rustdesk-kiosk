@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/foundation.dart';
@@ -388,49 +389,11 @@ class RustDeskMultiWindowManager {
   }
 
   Future<MultiWindowCallResult> openGlobalChat({bool toggle = true}) async {
-    for (final windowId in _globalChatWindows) {
-      if (_activeWindows.contains(windowId)) {
-        if (toggle) {
-          // Toggle OFF
-          await WindowController.fromWindowId(windowId).hide();
-          await call(WindowType.Main, kWindowEventHide, {"id": windowId});
-          return MultiWindowCallResult(windowId, null);
-        } else {
-          // Force Show & Focus
-          final wc = WindowController.fromWindowId(windowId);
-          await wc.setFrame(const Offset(100, 100) & const Size(360, 540));
-          await wc.center();
-          await wc.show();
-          await wc.focus();
-          return MultiWindowCallResult(windowId, null);
-        }
-      } else if (_inactiveWindows.contains(windowId)) {
-        // Toggle ON
-        final wc = WindowController.fromWindowId(windowId);
-        await wc.setFrame(const Offset(100, 100) & const Size(360, 540));
-        await wc.center();
-        await wc.show();
-        await wc.focus();
-        registerActiveWindow(windowId);
-        return MultiWindowCallResult(windowId, null);
-      }
-    }
-    
-    var params = {
-      "type": WindowType.GlobalChat.index,
-    };
-    final msg = jsonEncode(params);
-
-    final windowId = await newSessionWindow(
-        WindowType.GlobalChat, "Global Chat", msg, _globalChatWindows, false);
-    
-    final windowController = WindowController.fromWindowId(windowId);
-    windowController.showTitleBar(false);
-    await windowController.setFrame(const Offset(100, 100) & const Size(360, 540));
-    await windowController.center();
-    await windowController.show();
-    await windowController.focus();
-    return MultiWindowCallResult(windowId, null);
+    // Global chat deliberately runs outside the main Flutter process. This
+    // keeps it alive when the main UI closes. The Windows runner de-duplicates
+    // this launch and restores the existing chat window when one already exists.
+    await Process.start(Platform.resolvedExecutable, const ['--global-chat']);
+    return MultiWindowCallResult(kInvalidWindowId, null);
   }
 
   Future<MultiWindowCallResult> newGlobalChat() async {
