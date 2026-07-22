@@ -669,6 +669,59 @@ app.post('/api/admin/devices/require-key', requireAdmin, requireSameOrigin, rate
   }
 });
 
+app.post('/api/admin/devices/cancel-key-requirement', requireAdmin, requireSameOrigin, rateLimit('key-cancel', 20, 60_000), async (req, res) => {
+  const requestedIds = Array.isArray(req.body.device_ids)
+    ? [...new Set(req.body.device_ids.map(deviceId).filter(Boolean))].slice(0, 500)
+    : [];
+  const scopeAll = req.body.scope === 'all';
+  if (!scopeAll && requestedIds.length === 0) return fail(res, 400, 'No devices selected');
+
+  try {
+    const targets = scopeAll
+      ? await dbAll('SELECT id, hostname, seat_id FROM devices WHERE key_entry_required = 1 ORDER BY seat_id, hostname')
+      : await dbAll(
+        `SELECT id, hostname, seat_id FROM devices
+          WHERE key_entry_required = 1 AND id IN (${requestedIds.map(() => '?').join(',')})
+          ORDER BY seat_id, hostname`,
+        requestedIds,
+      );
+    if (!targets.length) return fail(res, 404, 'Không có máy nào đang bị ép nhập key');
+
+    await dbRun('BEGIN IMMEDIATE');
+    try {
+      for (const target of targets) {
+        await dbRun('UPDATE device_keys SET active = 0 WHERE device_id = ? AND active = 1', [target.id]);
+        const rawKey = `AUTO-${crypto.randomBytes(24).toString('base64url')}`;
+        const keyHint = `AUTO…${rawKey.slice(-5)}`;
+        const label = `Tự động · ${target.seat_id || target.hostname || target.id}`;
+        const result = await dbRun(
+          `INSERT INTO device_keys
+            (key_hash, key_hint, label, seat_id, device_id, mode, last_used_at)
+           VALUES (?, ?, ?, ?, ?, 'bound', CURRENT_TIMESTAMP)`,
+          [hashDeviceKey(rawKey), keyHint, label, target.seat_id || null, target.id],
+        );
+        await dbRun(
+          'UPDATE devices SET access_key_id = ?, key_entry_required = 0 WHERE id = ?',
+          [result.lastID, target.id],
+        );
+      }
+      await dbRun('COMMIT');
+    } catch (error) {
+      await dbRun('ROLLBACK');
+      throw error;
+    }
+
+    emitAdminEvent('device-activated', {
+      scope: scopeAll ? 'all' : 'selected',
+      device_ids: targets.map((item) => item.id),
+    });
+    res.json({ updated: targets.length, device_ids: targets.map((item) => item.id) });
+  } catch (error) {
+    console.error('Could not cancel key requirement:', error);
+    fail(res, 500, 'Database error');
+  }
+});
+
 app.post('/api/admin/device-keys/:id/revoke', requireAdmin, requireSameOrigin, async (req, res) => {
   const keyId = Math.max(0, Number.parseInt(req.params.id, 10) || 0);
   if (!keyId) return fail(res, 400, 'Invalid key id');

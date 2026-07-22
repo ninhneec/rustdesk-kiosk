@@ -145,7 +145,7 @@ option { color: var(--text); background: var(--surface-solid); }
 .tab-button.active { color: #dffffa; background: rgba(45, 212, 191, .13); box-shadow: inset 0 0 0 1px rgba(45, 212, 191, .18); }
 
 .table-wrap { overflow: auto; }
-table { width: 100%; min-width: 980px; border-collapse: collapse; }
+table { width: 100%; min-width: 1240px; border-collapse: collapse; }
 th { padding: .8rem 1.05rem; color: #7f94a8; background: rgba(4, 15, 26, .3); text-align: left; font-size: .64rem; letter-spacing: .11em; text-transform: uppercase; }
 td { padding: .9rem 1.05rem; border-top: 1px solid var(--line); color: #cfdae4; font-size: .78rem; vertical-align: middle; }
 tbody tr { transition: background .16s; }
@@ -161,6 +161,9 @@ tbody tr:hover { background: rgba(94, 168, 255, .035); }
 .status.pending { color: var(--warning); }
 .key-badge, .seat-badge, .priority-badge { display: inline-flex; padding: .28rem .48rem; border: 1px solid var(--line); border-radius: 7px; color: #bdcad5; background: rgba(3, 12, 22, .35); font-size: .67rem; font-weight: 700; }
 .key-badge.pending { color: #ffd66b; border-color: rgba(251, 191, 36, .2); background: rgba(251, 191, 36, .07); }
+.password-pill { min-width: 74px; border: 1px solid var(--line); border-radius: 8px; padding: .38rem .5rem; color: #d4e0e9; background: rgba(3, 12, 22, .42); cursor: pointer; font-size: .69rem; }
+.password-pill:hover { border-color: rgba(45, 212, 191, .42); color: #aafff2; }
+.password-pill:disabled { cursor: default; opacity: .48; }
 .row-actions { display: flex; justify-content: flex-end; gap: .4rem; }
 .empty-state { padding: 3.5rem 1rem; color: var(--muted); text-align: center; }
 .seat-select { min-width: 92px; padding: .46rem .55rem; font-size: .72rem; }

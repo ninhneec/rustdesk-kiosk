@@ -138,7 +138,7 @@ function renderDevices() {
   if (!devices.length) {
     const row = element('tr');
     const cell = element('td', 'empty-state', query ? 'Không tìm thấy thiết bị phù hợp.' : 'Chưa có thiết bị đăng ký.');
-    cell.colSpan = 7;
+    cell.colSpan = 9;
     row.append(cell);
     body.append(row);
     return;
@@ -149,8 +149,15 @@ function renderDevices() {
     const online = isOnline(device);
     const forcedKey = Number(device.key_entry_required) === 1;
     const row = element('tr');
-    const statusCell = element('td');
-    statusCell.append(element('span', `status ${active ? (online ? 'online' : 'offline') : 'pending'}`, active ? (online ? 'Online' : 'Offline') : (forcedKey ? 'Bắt nhập key' : 'Chờ key')));
+    const connectionCell = element('td');
+    connectionCell.append(element('span', `status ${online ? 'online' : 'offline'}`, online ? 'Online' : 'Offline'));
+
+    const accessCell = element('td');
+    accessCell.append(element(
+      'span',
+      `status ${active ? 'online' : 'pending'}`,
+      active ? 'Đã mở' : (forcedKey ? 'Bắt nhập key' : 'Chờ admin'),
+    ));
 
     const machineCell = element('td');
     const machine = element('div', 'device-name');
@@ -161,6 +168,18 @@ function renderDevices() {
     const idCell = element('td', 'mono', device.id);
     idCell.title = 'Nhấn để sao chép ID';
     idCell.addEventListener('click', () => copyValue(device.id, 'Đã sao chép RustDesk ID'));
+
+    const passwordCell = element('td');
+    const passwordButton = element('button', 'password-pill mono', device.pass ? '••••••' : 'Chưa có');
+    passwordButton.type = 'button';
+    passwordButton.disabled = !device.pass;
+    passwordButton.title = device.pass ? 'Bấm để hiện hoặc ẩn mật khẩu' : 'Máy chưa gửi mật khẩu';
+    let passwordVisible = false;
+    passwordButton.addEventListener('click', () => {
+      passwordVisible = !passwordVisible;
+      passwordButton.textContent = passwordVisible ? device.pass : '••••••';
+    });
+    passwordCell.append(passwordButton);
 
     const seatCell = element('td');
     const seatSelect = element('select', 'seat-select');
@@ -177,7 +196,8 @@ function renderDevices() {
 
     const actionsCell = element('td');
     const actions = element('div', 'row-actions');
-    if (!active) actions.append(actionButton('Kích hoạt', 'primary', () => activateDevice(device)));
+    if (forcedKey) actions.append(actionButton('Gỡ ép key', 'ghost', () => cancelKeyRequirement([device.id])));
+    if (!active && !forcedKey) actions.append(actionButton('Kích hoạt', 'primary', () => activateDevice(device)));
     if (active) {
       actions.append(actionButton('Nhập key lại', 'danger', () => requireNewKeys([device.id])));
       actions.append(actionButton('Chat', 'ghost', () => openBossChat(device)));
@@ -186,7 +206,7 @@ function renderDevices() {
     connect.href = `rustdesk://connect?id=${encodeURIComponent(device.id)}`;
     actions.append(connect);
     actionsCell.append(actions);
-    row.append(statusCell, machineCell, idCell, seatCell, keyCell, lastCell, actionsCell);
+    row.append(connectionCell, accessCell, machineCell, idCell, passwordCell, seatCell, keyCell, lastCell, actionsCell);
     body.append(row);
   });
 }
@@ -320,6 +340,24 @@ async function requireNewKeys(deviceIds = null) {
   } catch (error) { notify(`Không thể yêu cầu nhập key: ${error.message}`); }
 }
 
+async function cancelKeyRequirement(deviceIds = null) {
+  const allDevices = !deviceIds;
+  const forcedCount = state.devices.filter((device) => Number(device.key_entry_required) === 1).length;
+  if (allDevices && forcedCount === 0) return notify('Không có máy nào đang bị ép nhập key');
+  const prompt = allDevices
+    ? `Gỡ yêu cầu nhập key cho ${forcedCount} máy? Các máy sẽ được mở chat tự động và vẫn giữ nguyên ghế.`
+    : 'Gỡ yêu cầu nhập key cho máy này và mở lại chat tự động?';
+  if (!window.confirm(prompt)) return;
+  try {
+    const result = await api('/api/admin/devices/cancel-key-requirement', {
+      method: 'POST',
+      body: JSON.stringify(allDevices ? { scope: 'all' } : { device_ids: deviceIds }),
+    });
+    notify(`Đã gỡ ép nhập key cho ${result.updated} máy`);
+    await Promise.all([fetchDevices(), fetchKeys()]);
+  } catch (error) { notify(`Không thể gỡ ép key: ${error.message}`); }
+}
+
 function showGeneratedKey(key) {
   $('#generated-key').textContent = key;
   $('#key-result').hidden = false;
@@ -358,11 +396,15 @@ function openSeatModal(seat, device) {
   if (device) {
     const wrapper = element('div', 'modal-device');
     const info = element('div', 'modal-info');
-    [['Máy', device.hostname || 'Chưa đặt tên'], ['RustDesk ID', device.id], ['Chat key', isActive(device) ? (device.key_label || 'Đã cấp') : 'Chờ kích hoạt']].forEach(([label, value]) => {
+    [['Máy', device.hostname || 'Chưa đặt tên'], ['RustDesk ID', device.id], ['Mật khẩu', device.pass || 'Chưa có'], ['Chat key', isActive(device) ? (device.key_label || 'Đã cấp') : 'Chờ kích hoạt']].forEach(([label, value]) => {
       info.append(element('span', '', label), element('strong', label === 'RustDesk ID' ? 'mono' : '', value));
     });
     const actions = element('div', 'modal-actions');
-    if (!isActive(device)) actions.append(actionButton('Kích hoạt chat', 'primary', () => activateDevice(device)));
+    if (Number(device.key_entry_required) === 1) {
+      actions.append(actionButton('Gỡ ép key', 'ghost', () => cancelKeyRequirement([device.id])));
+    } else if (!isActive(device)) {
+      actions.append(actionButton('Kích hoạt chat', 'primary', () => activateDevice(device)));
+    }
     if (isActive(device)) actions.append(actionButton('Mở chat', 'ghost', () => openBossChat(device)));
     const connect = element('a', 'button compact ghost', 'Kết nối RustDesk');
     connect.href = `rustdesk://connect?id=${encodeURIComponent(device.id)}`;
@@ -449,6 +491,7 @@ $('#notification-btn').addEventListener('click', async () => {
 $('#refresh-btn').addEventListener('click', () => refreshAll());
 $('#hero-refresh-btn').addEventListener('click', () => refreshAll());
 $('#require-all-keys-btn').addEventListener('click', () => requireNewKeys());
+$('#cancel-all-keys-btn').addEventListener('click', () => cancelKeyRequirement());
 $('#search-input').addEventListener('input', renderDevices);
 document.querySelectorAll('.tab-button').forEach((button) => button.addEventListener('click', () => switchTab(button.dataset.tab)));
 

@@ -139,4 +139,27 @@ test('admin-bound and self-destruct key chat flow', async () => {
     }),
   });
   assert.equal(response.status, 403);
+
+  response = await adminRequest('/api/admin/devices/require-key', {
+    method: 'POST',
+    ...json({ scope: 'all' }),
+  });
+  assert.equal(response.status, 201);
+  assert.equal((await response.json()).generated.length, 2);
+
+  response = await adminRequest('/api/admin/devices/cancel-key-requirement', {
+    method: 'POST',
+    ...json({ scope: 'all' }),
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).updated, 2);
+
+  response = await request('/api/chat/messages?channel=boss', {
+    headers: deviceHeaders('device-101', 'device-token-101'),
+  });
+  assert.equal(response.status, 200);
+  response = await adminRequest('/api/admin/devices');
+  const unlockedDevice = (await response.json()).find((device) => device.id === 'device-101');
+  assert.equal(unlockedDevice.seat_id, 'M01');
+  assert.equal(unlockedDevice.key_entry_required, 0);
 });
