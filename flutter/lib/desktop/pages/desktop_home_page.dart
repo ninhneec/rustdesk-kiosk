@@ -839,6 +839,9 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         await rustDeskWinManager.registerActiveWindow(call.arguments["id"]);
       } else if (call.method == kWindowEventHide) {
         await rustDeskWinManager.unregisterActiveWindow(call.arguments['id']);
+        // [CUSTOM KIOSK MODE] When chat is closed/hidden, also hide main window (rustcol)
+        await windowManager.hide();
+        await rustDeskWinManager.unregisterActiveWindow(kMainWindowId);
       } else if (call.method == kWindowConnect) {
         await connectMainDesktop(
           call.arguments['id'],
