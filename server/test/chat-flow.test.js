@@ -87,6 +87,11 @@ test('admin-bound and self-destruct key chat flow', async () => {
   });
   assert.equal(response.status, 200);
   assert.equal((await response.json()).key, 'p20401034');
+  response = await adminRequest(`/api/admin/device-keys/${boundKey.id}`, {
+    method: 'PUT',
+    ...json({ key: 'short' }),
+  });
+  assert.equal(response.status, 400);
 
   response = await request('/api/chat/messages', {
     method: 'POST',
@@ -143,17 +148,49 @@ test('admin-bound and self-destruct key chat flow', async () => {
     method: 'POST',
     ...json({
       id: 'device-101', hostname: 'Seat client', pass: '',
-      chat_token: 'device-token-101', activation_key: oneTimeKey,
+      chat_token: 'device-token-101', activation_key: oneTimeKey.toUpperCase(),
     }),
   });
   assert.equal(response.status, 200);
   assert.equal((await response.json()).activated, true);
+  response = await adminRequest(`/api/admin/device-keys/${oneTimeGenerated.id}`, {
+    method: 'PUT',
+    ...json({ key: 'p20499999' }),
+  });
+  assert.equal(response.status, 404);
 
   response = await request('/api/device/save-password', {
     method: 'POST',
     ...json({ id: 'device-202', hostname: 'Other client', pass: '', chat_token: 'device-token-202' }),
   });
   assert.equal(response.status, 202);
+
+  response = await adminRequest('/api/admin/devices/device-202/seat', {
+    method: 'POST',
+    ...json({ seat_id: 'M02' }),
+  });
+  assert.equal(response.status, 200);
+  response = await adminRequest('/api/admin/devices/device-202/seat', {
+    method: 'POST',
+    ...json({ seat_id: 'M01' }),
+  });
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).code, 'SEAT_ALREADY_ASSIGNED');
+  response = await adminRequest('/api/admin/devices/device-202/seat', {
+    method: 'POST',
+    ...json({ seat_id: 'M37' }),
+  });
+  assert.equal(response.status, 400);
+  response = await adminRequest('/api/admin/devices');
+  assert.equal((await response.json()).find((device) => device.id === 'device-202').seat_id, 'M02');
+
+  response = await adminRequest('/api/admin/device-keys', {
+    method: 'POST',
+    ...json({ mode: 'bound', device_id: 'device-101', seat_id: 'M02', label: 'Trùng ghế' }),
+  });
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).code, 'SEAT_ALREADY_ASSIGNED');
+
   response = await request('/api/device/save-password', {
     method: 'POST',
     ...json({

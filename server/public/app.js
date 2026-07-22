@@ -86,11 +86,14 @@ function isActive(device) {
   return Boolean(device.access_key_id && Number(device.key_active) === 1);
 }
 
-function seatValues(select, selected = '') {
+function seatValues(select, selected = '', currentDeviceId = '') {
   select.replaceChildren(new Option('Chưa gán', ''));
   for (let number = 1; number <= 36; number += 1) {
     const seat = `M${String(number).padStart(2, '0')}`;
-    select.add(new Option(seat, seat, false, seat === selected));
+    const occupant = state.devices.find((device) => device.seat_id === seat && device.id !== currentDeviceId);
+    const option = new Option(occupant ? `${seat} · ${occupant.hostname || occupant.id}` : seat, seat, false, seat === selected);
+    option.disabled = Boolean(occupant);
+    select.add(option);
   }
 }
 
@@ -196,7 +199,7 @@ function renderDevices() {
 
     const seatCell = element('td');
     const seatSelect = element('select', 'seat-select');
-    seatValues(seatSelect, device.seat_id || '');
+    seatValues(seatSelect, device.seat_id || '', device.id);
     seatSelect.addEventListener('change', () => assignSeat(device.id, seatSelect.value || null));
     seatCell.append(seatSelect);
 
@@ -492,10 +495,8 @@ function renderKeys() {
     item.append(main);
     if (active) {
       const actions = element('div', 'key-item-actions');
-      actions.append(
-        actionButton('Sửa key', '', () => showKeyEditor(key, item)),
-        actionButton('Thu hồi', 'danger', () => revokeKey(key.id)),
-      );
+      if (!key.consumed_at) actions.append(actionButton('Sửa key', '', () => showKeyEditor(key, item)));
+      actions.append(actionButton('Thu hồi', 'danger', () => revokeKey(key.id)));
       item.append(actions);
     }
     list.append(item);
@@ -509,14 +510,14 @@ function showKeyEditor(key, item) {
   input.type = 'text';
   input.name = 'key';
   input.required = true;
-  input.minLength = 6;
+  input.minLength = 8;
   input.maxLength = 16;
-  input.pattern = '[A-Za-z0-9]{6,16}';
+  input.pattern = '[A-Za-z0-9]{8,16}';
   input.autocomplete = 'off';
   input.spellcheck = false;
   input.placeholder = 'Ví dụ: p20401034';
   input.setAttribute('aria-label', 'Mã key mới');
-  if (/^[a-z0-9]{6,16}$/i.test(key.key_hint || '')) input.value = key.key_hint.toLowerCase();
+  if (/^[a-z0-9]{8,16}$/i.test(key.key_hint || '')) input.value = key.key_hint.toLowerCase();
   input.addEventListener('input', () => {
     input.value = input.value.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 16);
   });
@@ -549,7 +550,10 @@ async function assignSeat(deviceId, seatId) {
     notify(seatId ? `Đã gán máy vào ${seatId}` : 'Đã bỏ gán chỗ ngồi');
     await fetchDevices();
     if ($('#seat-modal').open) $('#seat-modal').close();
-  } catch (error) { notify(`Không cập nhật được chỗ ngồi: ${error.message}`); }
+  } catch (error) {
+    notify(`Không cập nhật được chỗ ngồi: ${error.message}`);
+    await fetchDevices();
+  }
 }
 
 async function activateDevice(device) {

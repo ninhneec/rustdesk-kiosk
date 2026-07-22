@@ -194,7 +194,8 @@ function deviceId(value) {
 
 function seatId(value) {
   const seat = text(value, 24);
-  return seat && /^[A-Za-z0-9._-]+$/.test(seat) ? seat.toUpperCase() : null;
+  const normalized = seat?.toUpperCase();
+  return normalized && /^M(?:0[1-9]|[12]\d|3[0-6])$/.test(normalized) ? normalized : null;
 }
 
 function token(value) {
@@ -214,7 +215,7 @@ function hashDeviceKey(value) {
 
 function editableDeviceKey(value) {
   const rawKey = text(value, 16)?.toLowerCase();
-  return rawKey && /^[a-z0-9]{6,16}$/.test(rawKey) ? rawKey : null;
+  return rawKey && /^[a-z0-9]{8,16}$/.test(rawKey) ? rawKey : null;
 }
 
 async function generateShortDeviceKey() {
@@ -473,9 +474,16 @@ app.post('/api/device/save-password', rateLimit('device-register', 30, 60_000), 
     }
 
     // Retain server-side activation support for automated provisioning tools.
+    const activationKeyHashes = [hashDeviceKey(activationKey)];
+    const normalizedActivationKey = editableDeviceKey(activationKey);
+    if (normalizedActivationKey && normalizedActivationKey !== activationKey) {
+      activationKeyHashes.push(hashDeviceKey(normalizedActivationKey));
+    }
     const keyRow = await dbGet(
-      'SELECT * FROM device_keys WHERE key_hash = ? AND active = 1 AND consumed_at IS NULL',
-      [hashDeviceKey(activationKey)],
+      `SELECT * FROM device_keys
+        WHERE key_hash IN (${activationKeyHashes.map(() => '?').join(',')})
+          AND active = 1 AND consumed_at IS NULL`,
+      activationKeyHashes,
     );
     if (!keyRow) return fail(res, 403, 'Key kích hoạt không hợp lệ hoặc đã bị thu hồi', 'INVALID_ACTIVATION_KEY');
     if (keyRow.device_id && keyRow.device_id !== id) {
@@ -484,6 +492,16 @@ app.post('/api/device/save-password', rateLimit('device-register', 30, 60_000), 
 
     await dbRun('BEGIN IMMEDIATE');
     try {
+      if (keyRow.seat_id) {
+        const occupied = await dbGet(
+          'SELECT id, hostname FROM devices WHERE seat_id = ? AND id <> ?',
+          [keyRow.seat_id, id],
+        );
+        if (occupied) {
+          await dbRun('ROLLBACK');
+          return fail(res, 409, `${keyRow.seat_id} đã được gán cho ${occupied.hostname || occupied.id}`, 'SEAT_ALREADY_ASSIGNED');
+        }
+      }
       await dbRun(
         `INSERT INTO devices (id, pass, hostname, chat_token, seat_id, access_key_id, last_seen)
          VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -536,13 +554,33 @@ app.post('/api/admin/devices/:id/seat', requireAdmin, requireSameOrigin, async (
   const id = deviceId(req.params.id);
   const seat = seatId(req.body.seat_id);
   if (!id) return fail(res, 400, 'Invalid device ID');
+  if (req.body.seat_id && !seat) return fail(res, 400, 'Invalid seat ID');
   try {
-    const result = await dbRun('UPDATE devices SET seat_id = ? WHERE id = ?', [seat, id]);
-    if (!result.changes) return fail(res, 404, 'Device not found');
-    await dbRun('UPDATE device_keys SET seat_id = ? WHERE device_id = ? AND active = 1', [seat, id]);
+    await dbRun('BEGIN IMMEDIATE');
+    let result;
+    try {
+      if (seat) {
+        const occupied = await dbGet('SELECT id, hostname FROM devices WHERE seat_id = ? AND id <> ?', [seat, id]);
+        if (occupied) {
+          await dbRun('ROLLBACK');
+          return fail(res, 409, `${seat} đã được gán cho ${occupied.hostname || occupied.id}`, 'SEAT_ALREADY_ASSIGNED');
+        }
+      }
+      result = await dbRun('UPDATE devices SET seat_id = ? WHERE id = ?', [seat, id]);
+      if (!result.changes) {
+        await dbRun('ROLLBACK');
+        return fail(res, 404, 'Device not found');
+      }
+      await dbRun('UPDATE device_keys SET seat_id = ? WHERE device_id = ? AND active = 1', [seat, id]);
+      await dbRun('COMMIT');
+    } catch (error) {
+      await dbRun('ROLLBACK');
+      throw error;
+    }
     emitAdminEvent('device-updated', { device_id: id, seat_id: seat });
     res.json({ result: 'OK', seat_id: seat });
-  } catch (_error) {
+  } catch (error) {
+    console.error('Could not update device seat:', error);
     fail(res, 500, 'Database error');
   }
 });
@@ -581,6 +619,16 @@ app.post('/api/admin/device-keys', requireAdmin, requireSameOrigin, rateLimit('k
     await dbRun('BEGIN IMMEDIATE');
     let result;
     try {
+      if (requestedSeatId) {
+        const occupied = await dbGet(
+          'SELECT id, hostname FROM devices WHERE seat_id = ? AND (? IS NULL OR id <> ?)',
+          [requestedSeatId, requestedDeviceId, requestedDeviceId],
+        );
+        if (occupied) {
+          await dbRun('ROLLBACK');
+          return fail(res, 409, `${requestedSeatId} đã được gán cho ${occupied.hostname || occupied.id}`, 'SEAT_ALREADY_ASSIGNED');
+        }
+      }
       if (requestedDeviceId) {
         await dbRun('UPDATE device_keys SET active = 0 WHERE device_id = ? AND active = 1', [requestedDeviceId]);
       }
@@ -743,7 +791,7 @@ app.put('/api/admin/device-keys/:id', requireAdmin, requireSameOrigin, rateLimit
   const keyId = Math.max(0, Number.parseInt(req.params.id, 10) || 0);
   const rawKey = editableDeviceKey(req.body.key);
   if (!keyId) return fail(res, 400, 'Invalid key id');
-  if (!rawKey) return fail(res, 400, 'Key phải gồm 6-16 chữ hoặc số, không có khoảng trắng');
+  if (!rawKey) return fail(res, 400, 'Key phải gồm 8-16 chữ hoặc số, không có khoảng trắng');
 
   try {
     const keyHash = hashDeviceKey(rawKey);
@@ -759,6 +807,7 @@ app.put('/api/admin/device-keys/:id', requireAdmin, requireSameOrigin, rateLimit
     res.json({ id: keyId, key: rawKey, key_hint: rawKey });
   } catch (error) {
     console.error('Could not update device key:', error);
+    if (error?.code === 'SQLITE_CONSTRAINT') return fail(res, 409, 'Key này đã được sử dụng');
     fail(res, 500, 'Database error');
   }
 });

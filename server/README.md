@@ -29,12 +29,20 @@ npm test
 1. **Gán thẳng:** admin chọn máy/ghế; client tự mở chat, không phải nhập key.
 2. **Tự hủy:** admin ép một máy hoặc toàn bộ máy nhập key. Server giữ nguyên ghế, khóa quyền cũ và sinh mã riêng cho từng máy. Khi nhập đúng trong cửa sổ chat, hash của mã bị thay ngay nên không thể dùng lại.
 
+Key sinh tự động có dạng ngắn `p20412345`. Admin có thể sửa key đang chờ dùng thành mã 8–16 ký tự chữ/số; hệ thống tự đổi về chữ thường và chặn mã trùng. Chỗ ngồi chỉ nhận `M01`–`M36`, mỗi chỗ chỉ được gán cho một máy.
+
 Mọi tin nhắn từ client đều tạo cảnh báo realtime trên dashboard. Tin chứa từ khóa trong mục **Cảnh báo** được ưu tiên khẩn.
 
 ## Deploy VPS chat riêng
 
 ```bash
 sudo bash server/deploy_chat_only.sh
+```
+
+Hoặc chạy trực tiếp trên VPS để kéo bản mới nhất từ GitHub:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ninhneec/rustdesk-kiosk/master/server/deploy_chat_only.sh | sudo bash
 ```
 
 Script lưu database tại `/var/lib/rustdesk-kiosk-chat/devices.db` và giữ secret tại `/etc/rustdesk-kiosk-chat.env`, vì vậy deploy lại không làm đổi mã admin hoặc mất key/ghế.

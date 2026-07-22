@@ -531,7 +531,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
                 style: const TextStyle(
                     color: Colors.white, fontSize: 13, letterSpacing: .4),
                 decoration: InputDecoration(
-                  hintText: 'RDK-…',
+                  hintText: 'p20412345',
                   errorText: _activationError.isEmpty ? null : _activationError,
                   prefixIcon: const Icon(Icons.lock_open_rounded,
                       color: Color(0xFF5EEAD4), size: 18),
