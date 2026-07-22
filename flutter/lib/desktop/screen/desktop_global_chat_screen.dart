@@ -74,15 +74,12 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
   }
 
   Future<void> _closeWindow() async {
-    if (_isClosing) return;
     final windowId = kWindowId;
     if (windowId == null) return;
-    _isClosing = true;
     try {
-      WindowController.fromWindowId(windowId).hide();
+      await WindowController.fromWindowId(windowId).hide();
       await rustDeskWinManager.call(WindowType.Main, kWindowEventHide, {"id": windowId});
     } catch (error, stackTrace) {
-      _isClosing = false;
       debugPrint('Failed to hide Global Chat: $error\n$stackTrace');
     }
   }

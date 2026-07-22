@@ -392,21 +392,25 @@ class RustDeskMultiWindowManager {
       if (_activeWindows.contains(windowId)) {
         if (toggle) {
           // Toggle OFF
-          WindowController.fromWindowId(windowId).hide();
+          await WindowController.fromWindowId(windowId).hide();
           await call(WindowType.Main, kWindowEventHide, {"id": windowId});
           return MultiWindowCallResult(windowId, null);
         } else {
           // Force Show & Focus
           final wc = WindowController.fromWindowId(windowId);
-          wc.show();
-          wc.focus();
+          await wc.setFrame(const Offset(100, 100) & const Size(360, 540));
+          await wc.center();
+          await wc.show();
+          await wc.focus();
           return MultiWindowCallResult(windowId, null);
         }
       } else if (_inactiveWindows.contains(windowId)) {
         // Toggle ON
         final wc = WindowController.fromWindowId(windowId);
-        wc.show();
-        wc.focus();
+        await wc.setFrame(const Offset(100, 100) & const Size(360, 540));
+        await wc.center();
+        await wc.show();
+        await wc.focus();
         registerActiveWindow(windowId);
         return MultiWindowCallResult(windowId, null);
       }
@@ -422,9 +426,10 @@ class RustDeskMultiWindowManager {
     
     final windowController = WindowController.fromWindowId(windowId);
     windowController.showTitleBar(false);
-    windowController.center();
-    windowController.show();
-    windowController.focus();
+    await windowController.setFrame(const Offset(100, 100) & const Size(360, 540));
+    await windowController.center();
+    await windowController.show();
+    await windowController.focus();
     return MultiWindowCallResult(windowId, null);
   }
 
