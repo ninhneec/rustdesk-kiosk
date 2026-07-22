@@ -244,17 +244,66 @@ function renderMap() {
   const grid = $('#desk-grid');
   grid.replaceChildren();
   const bySeat = new Map(state.devices.filter((device) => device.seat_id).map((device) => [device.seat_id, device]));
-  for (let number = 1; number <= 36; number += 1) {
-    const seat = `M${String(number).padStart(2, '0')}`;
-    const device = bySeat.get(seat);
-    const status = !device ? '' : !isActive(device) ? 'pending assigned' : isOnline(device) ? 'online assigned' : 'offline assigned';
-    const desk = element('button', `desk ${status}`.trim());
-    desk.type = 'button';
-    desk.append(element('strong', '', seat));
-    desk.append(element('small', '', device ? (device.hostname || device.id) : 'Chưa gán'));
-    desk.addEventListener('click', () => openSeatModal(seat, device));
-    grid.append(desk);
-  }
+  const roomRows = [
+    { label: 'Dãy 4', seats: [36, 35, 34, 33, 32, 31, 30, 29, 28], photo: ['36', '31', '32', '30', '34', '29', '24.2', '24.1', '40'] },
+    { label: 'Dãy 3', seats: [19, 20, 21, 22, 23, 24, 25, 26, 27], photo: ['02', '22', '26', 'K0', '23', '21', '11', '19', '10'] },
+    { label: 'Dãy 2', seats: [18, 17, 16, 15, 14, 13, 12, 11, 10], photo: ['18', '09', '10', '12', '16', '24', '21', '22', '150'] },
+    { label: 'Dãy 1', seats: [1, 2, 3, 4, 5, 6, 7, 8, 9], photo: ['10', '8', '30', '14', '7', '6', '1', 'K0', '05'] },
+  ];
+
+  const topWall = element('div', 'room-top-wall');
+  topWall.append(
+    element('span', 'rear-window window-one'),
+    element('span', 'rear-window window-two'),
+    element('span', 'server-cabinet', 'SERVER'),
+  );
+
+  const roomBody = element('div', 'room-body');
+  const seatArea = element('div', 'seat-area');
+  roomRows.forEach((roomRow) => {
+    const row = element('section', 'room-row');
+    row.append(element('h3', 'room-row-label', roomRow.label));
+    const line = element('div', 'desk-line');
+    roomRow.seats.forEach((seatNumber, index) => {
+      const seat = `M${String(seatNumber).padStart(2, '0')}`;
+      const device = bySeat.get(seat);
+      const status = !device ? '' : !isActive(device) ? 'pending assigned' : isOnline(device) ? 'online assigned' : 'offline assigned';
+      const desk = element('button', `desk ${index % 2 === 0 ? 'upper' : 'lower'} ${status}`.trim());
+      desk.type = 'button';
+      desk.title = `${roomRow.label} · Số ảnh ${roomRow.photo[index]} · Ghế ${seat}`;
+
+      const equipment = element('span', 'desk-equipment');
+      equipment.append(element('i', 'desk-pc'), element('i', 'desk-monitor'), element('i', 'desk-chair'));
+      const codes = element('span', 'desk-codes');
+      const photoCode = element('span', 'desk-code photo-code');
+      photoCode.append(element('small', '', 'SỐ ẢNH'), element('strong', '', roomRow.photo[index]));
+      const seatCode = element('span', 'desk-code seat-code');
+      seatCode.append(element('small', '', 'SỐ GHẾ'), element('strong', '', seat));
+      codes.append(photoCode, seatCode);
+      const deviceName = element('span', 'desk-device', device ? (device.hostname || device.id) : 'Chưa gán máy');
+      desk.append(equipment, codes, deviceName);
+      desk.addEventListener('click', () => openSeatModal(seat, device));
+      line.append(desk);
+    });
+    row.append(line);
+    seatArea.append(row);
+  });
+
+  const serviceZone = element('aside', 'service-zone');
+  serviceZone.append(
+    element('div', 'teacher-desk', 'BÀN GV'),
+    element('div', 'podium', 'BỤC GIẢNG'),
+    element('div', 'storage-cabinet', 'TỦ GỖ'),
+  );
+  roomBody.append(seatArea, serviceZone);
+
+  const bottomWall = element('div', 'room-bottom-wall');
+  bottomWall.append(
+    element('span', 'front-door', 'CỬA'),
+    element('strong', 'room-sign', 'P204'),
+    element('span', 'front-door', 'CỬA'),
+  );
+  grid.append(topWall, roomBody, bottomWall);
 }
 
 function renderKeyDeviceOptions() {
