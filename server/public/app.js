@@ -295,9 +295,19 @@ function renderMap() {
       codes.append(photoCode, seatCode);
       const deviceName = element('span', 'desk-device', device ? (device.hostname || device.id) : 'Chưa gán máy');
       desk.append(equipment, codes, deviceName);
-      desk.addEventListener('click', () => {
+      const selectDesk = () => {
         grid.querySelector('.desk.selected')?.classList.remove('selected');
         desk.classList.add('selected');
+      };
+      desk.addEventListener('pointerdown', (event) => event.stopPropagation());
+      desk.addEventListener('click', (event) => {
+        selectDesk();
+        if (event.detail === 0) openSeatModal(seat, device);
+      });
+      desk.addEventListener('dblclick', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        selectDesk();
         openSeatModal(seat, device);
       });
       line.append(desk);
