@@ -309,7 +309,12 @@ void runMultiWindow(
       await restoreWindowPosition(WindowType.Terminal, windowId: kWindowId!);
       break;
     case kAppTypeDesktopGlobalChat:
-      // Don't restore window position for Global Chat. It handles its own position (bottom-right).
+      final wc = WindowController.fromWindowId(kWindowId!);
+      await wc.showTitleBar(false);
+      await wc.setFrame(const Offset(100, 100) & const Size(360, 540));
+      await wc.center();
+      await wc.show();
+      await wc.focus();
       break;
     default:
       // no such appType
