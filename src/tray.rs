@@ -109,18 +109,31 @@ fn make_tray() -> hbb_common::ResultType<()> {
     });
     
     // [CUSTOM KIOSK MODE]
-    // Register Global Hotkey (Ctrl + Shift + F12) to open Global Chat
+    // Register Global Hotkeys:
+    // Primary: Ctrl + Shift + F12
+    // Backup: Alt + Shift + C
     #[cfg(windows)]
     {
         std::thread::spawn(|| {
-            use winapi::um::winuser::{RegisterHotKey, GetMessageW, TranslateMessage, DispatchMessageW, MSG, MOD_CONTROL, MOD_SHIFT, WM_HOTKEY};
+            use winapi::um::winuser::{
+                RegisterHotKey, GetMessageW, TranslateMessage, DispatchMessageW, MSG,
+                PeekMessageW, PM_NOREMOVE, WM_USER, MOD_CONTROL, MOD_SHIFT, MOD_ALT, WM_HOTKEY
+            };
             const VK_F12: u32 = 0x7B;
+            const VK_C: u32 = 0x43;
             unsafe {
-                if RegisterHotKey(std::ptr::null_mut(), 1, MOD_CONTROL as u32 | MOD_SHIFT as u32, VK_F12) != 0 {
+                // Force creation of Win32 message queue for this thread
+                let mut dummy_msg: MSG = std::mem::zeroed();
+                PeekMessageW(&mut dummy_msg, std::ptr::null_mut(), WM_USER, WM_USER, PM_NOREMOVE);
+
+                let r1 = RegisterHotKey(std::ptr::null_mut(), 1001, MOD_CONTROL as u32 | MOD_SHIFT as u32, VK_F12);
+                let r2 = RegisterHotKey(std::ptr::null_mut(), 1002, MOD_ALT as u32 | MOD_SHIFT as u32, VK_C);
+                
+                if r1 != 0 || r2 != 0 {
+                    log::info!("Global hotkeys registered (Ctrl+Shift+F12: {}, Alt+Shift+C: {})", r1 != 0, r2 != 0);
                     let mut msg: MSG = std::mem::zeroed();
                     while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
-                        if msg.message == WM_HOTKEY && msg.wParam == 1 {
-                            // Trigger Global Chat
+                        if msg.message == WM_HOTKEY && (msg.wParam == 1001 || msg.wParam == 1002) {
                             let _ = std::thread::spawn(|| {
                                 crate::run_me(vec!["--open-global-chat"]).ok();
                             });
@@ -129,7 +142,7 @@ fn make_tray() -> hbb_common::ResultType<()> {
                         DispatchMessageW(&msg);
                     }
                 } else {
-                    log::error!("Failed to register hotkey Ctrl+Shift+F12");
+                    log::error!("Failed to register hotkeys Ctrl+Shift+F12 and Alt+Shift+C");
                 }
             }
         });

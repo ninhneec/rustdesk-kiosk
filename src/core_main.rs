@@ -225,18 +225,6 @@ pub fn core_main() -> Option<Vec<String>> {
                 }
             }
         }
-
-        // Spawn tray process but DO NOT prevent main UI from opening
-        if std::env::var("RUSTDESK_KIOSK_BOOT").is_err() {
-            if !crate::check_process("--tray", true) {
-                if let Ok(exe) = std::env::current_exe() {
-                    let mut cmd = std::process::Command::new(exe);
-                    cmd.arg("--tray");
-                    cmd.env("RUSTDESK_KIOSK_BOOT", "1");
-                    hbb_common::allow_err!(cmd.spawn());
-                }
-            }
-        }
         // [/CUSTOM KIOSK MODE]
     } else {
         #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -414,16 +402,6 @@ pub fn core_main() -> Option<Vec<String>> {
             }
         } else if args[0] == "--tray" {
             if !crate::check_process("--tray", true) {
-                // [CUSTOM KIOSK MODE]
-                // Ensure the hidden Flutter UI is spawned to handle Global Chat IPC.
-                if std::env::var("RUSTDESK_KIOSK_BOOT").is_err() {
-                    if let Ok(exe) = std::env::current_exe() {
-                        let mut cmd = std::process::Command::new(exe);
-                        cmd.env("RUSTDESK_KIOSK_BOOT", "1");
-                        hbb_common::allow_err!(cmd.spawn());
-                    }
-                }
-                // [/CUSTOM KIOSK MODE]
                 crate::tray::start_tray();
             }
             return None;
