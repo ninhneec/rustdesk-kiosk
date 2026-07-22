@@ -480,9 +480,55 @@ function renderKeys() {
     if (key.created_at) meta.push(`tạo ${serverDate(key.created_at).toLocaleString('vi-VN')}`);
     main.append(title, element('div', 'key-item-meta', meta.join(' · ')));
     item.append(main);
-    if (active) item.append(actionButton('Thu hồi', 'danger', () => revokeKey(key.id)));
+    if (active) {
+      const actions = element('div', 'key-item-actions');
+      actions.append(
+        actionButton('Sửa key', '', () => showKeyEditor(key, item)),
+        actionButton('Thu hồi', 'danger', () => revokeKey(key.id)),
+      );
+      item.append(actions);
+    }
     list.append(item);
   });
+}
+
+function showKeyEditor(key, item) {
+  item.querySelector('.key-edit-form')?.remove();
+  const form = element('form', 'key-edit-form');
+  const input = element('input', 'key-edit-input');
+  input.type = 'text';
+  input.name = 'key';
+  input.required = true;
+  input.minLength = 6;
+  input.maxLength = 16;
+  input.pattern = '[A-Za-z0-9]{6,16}';
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  input.placeholder = 'Ví dụ: p20401034';
+  input.setAttribute('aria-label', 'Mã key mới');
+  if (/^[a-z0-9]{6,16}$/i.test(key.key_hint || '')) input.value = key.key_hint.toLowerCase();
+  input.addEventListener('input', () => {
+    input.value = input.value.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 16);
+  });
+  const save = actionButton('Lưu key', 'primary', () => {});
+  save.type = 'submit';
+  const cancel = actionButton('Hủy', '', () => form.remove());
+  form.append(input, save, cancel);
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    save.disabled = true;
+    try {
+      const result = await api(`/api/admin/device-keys/${key.id}`, {
+        method: 'PUT', body: JSON.stringify({ key: input.value }),
+      });
+      showGeneratedKey(result.key);
+      notify(`Đã đổi key thành ${result.key}`);
+      await fetchKeys();
+    } catch (error) { notify(`Không sửa được key: ${error.message}`); }
+    finally { save.disabled = false; }
+  });
+  item.append(form);
+  input.focus();
 }
 
 async function assignSeat(deviceId, seatId) {
@@ -635,7 +681,7 @@ function connectEvents() {
     }
     fetchAlerts().catch(console.error);
   });
-  ['device-pending', 'device-activated', 'device-updated', 'device-key-revoked'].forEach((eventName) => {
+  ['device-pending', 'device-activated', 'device-updated', 'device-key-updated', 'device-key-revoked'].forEach((eventName) => {
     source.addEventListener(eventName, () => Promise.all([fetchDevices(), fetchKeys()]).catch(console.error));
   });
   source.addEventListener('alert-acknowledged', () => fetchAlerts().catch(console.error));

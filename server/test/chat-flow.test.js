@@ -77,6 +77,16 @@ test('admin-bound and self-destruct key chat flow', async () => {
     ...json({ mode: 'bound', device_id: 'device-101', seat_id: 'M01', label: 'Ghế M01' }),
   });
   assert.equal(response.status, 201);
+  const boundKey = await response.json();
+  assert.match(boundKey.key, /^p204\d{5}$/);
+  assert.equal(boundKey.key_hint, boundKey.key);
+
+  response = await adminRequest(`/api/admin/device-keys/${boundKey.id}`, {
+    method: 'PUT',
+    ...json({ key: 'P20401034' }),
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).key, 'p20401034');
 
   response = await request('/api/chat/messages', {
     method: 'POST',
@@ -97,7 +107,20 @@ test('admin-bound and self-destruct key chat flow', async () => {
     ...json({ device_ids: ['device-101'] }),
   });
   assert.equal(response.status, 201);
-  const oneTimeKey = (await response.json()).generated[0].key;
+  const oneTimeGenerated = (await response.json()).generated[0];
+  assert.match(oneTimeGenerated.key, /^p204\d{5}$/);
+
+  response = await adminRequest(`/api/admin/device-keys/${oneTimeGenerated.id}`, {
+    method: 'PUT',
+    ...json({ key: 'p20401034' }),
+  });
+  assert.equal(response.status, 409);
+  response = await adminRequest(`/api/admin/device-keys/${oneTimeGenerated.id}`, {
+    method: 'PUT',
+    ...json({ key: 'p20402035' }),
+  });
+  assert.equal(response.status, 200);
+  const oneTimeKey = (await response.json()).key;
 
   response = await request('/api/device/save-password', {
     method: 'POST',

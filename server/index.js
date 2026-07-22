@@ -212,6 +212,20 @@ function hashDeviceKey(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
 
+function editableDeviceKey(value) {
+  const rawKey = text(value, 16)?.toLowerCase();
+  return rawKey && /^[a-z0-9]{6,16}$/.test(rawKey) ? rawKey : null;
+}
+
+async function generateShortDeviceKey() {
+  for (let attempt = 0; attempt < 24; attempt += 1) {
+    const rawKey = `p204${crypto.randomInt(0, 100_000).toString().padStart(5, '0')}`;
+    const existing = await dbGet('SELECT id FROM device_keys WHERE key_hash = ?', [hashDeviceKey(rawKey)]);
+    if (!existing) return rawKey;
+  }
+  throw new Error('Could not allocate a unique short key');
+}
+
 function parseCookies(req) {
   return Object.fromEntries(
     (req.get('cookie') || '')
@@ -555,13 +569,14 @@ app.post('/api/admin/device-keys', requireAdmin, requireSameOrigin, rateLimit('k
   if (req.body.device_id && !requestedDeviceId) return fail(res, 400, 'Invalid device ID');
   if (req.body.seat_id && !requestedSeatId) return fail(res, 400, 'Invalid seat ID');
 
-  const rawKey = `RDK-${crypto.randomBytes(24).toString('base64url')}`;
-  const keyHint = `${rawKey.slice(0, 8)}…${rawKey.slice(-5)}`;
   try {
     if (requestedDeviceId) {
       const device = await dbGet('SELECT id FROM devices WHERE id = ?', [requestedDeviceId]);
       if (!device) return fail(res, 404, 'Device not found');
     }
+
+    const rawKey = await generateShortDeviceKey();
+    const keyHint = rawKey;
 
     await dbRun('BEGIN IMMEDIATE');
     let result;
@@ -642,8 +657,8 @@ app.post('/api/admin/devices/require-key', requireAdmin, requireSameOrigin, rate
       for (const target of targets) {
         await dbRun('UPDATE device_keys SET active = 0 WHERE device_id = ? AND active = 1', [target.id]);
         await dbRun('UPDATE devices SET access_key_id = NULL, key_entry_required = 1 WHERE id = ?', [target.id]);
-        const rawKey = `RDK-${crypto.randomBytes(24).toString('base64url')}`;
-        const keyHint = `${rawKey.slice(0, 8)}…${rawKey.slice(-5)}`;
+        const rawKey = await generateShortDeviceKey();
+        const keyHint = rawKey;
         const label = `Xác thực lại · ${target.seat_id || target.hostname || target.id}`;
         const result = await dbRun(
           `INSERT INTO device_keys (key_hash, key_hint, label, seat_id, device_id, mode)
@@ -720,6 +735,30 @@ app.post('/api/admin/devices/cancel-key-requirement', requireAdmin, requireSameO
     res.json({ updated: targets.length, device_ids: targets.map((item) => item.id) });
   } catch (error) {
     console.error('Could not cancel key requirement:', error);
+    fail(res, 500, 'Database error');
+  }
+});
+
+app.put('/api/admin/device-keys/:id', requireAdmin, requireSameOrigin, rateLimit('key-edit', 30, 60_000), async (req, res) => {
+  const keyId = Math.max(0, Number.parseInt(req.params.id, 10) || 0);
+  const rawKey = editableDeviceKey(req.body.key);
+  if (!keyId) return fail(res, 400, 'Invalid key id');
+  if (!rawKey) return fail(res, 400, 'Key phải gồm 6-16 chữ hoặc số, không có khoảng trắng');
+
+  try {
+    const keyHash = hashDeviceKey(rawKey);
+    const duplicate = await dbGet('SELECT id FROM device_keys WHERE key_hash = ? AND id <> ?', [keyHash, keyId]);
+    if (duplicate) return fail(res, 409, 'Key này đã được sử dụng');
+    const result = await dbRun(
+      `UPDATE device_keys SET key_hash = ?, key_hint = ?
+        WHERE id = ? AND active = 1 AND consumed_at IS NULL`,
+      [keyHash, rawKey, keyId],
+    );
+    if (!result.changes) return fail(res, 404, 'Không tìm thấy key đang hoạt động để sửa');
+    emitAdminEvent('device-key-updated', { key_id: keyId, key_hint: rawKey });
+    res.json({ id: keyId, key: rawKey, key_hint: rawKey });
+  } catch (error) {
+    console.error('Could not update device key:', error);
     fail(res, 500, 'Database error');
   }
 });

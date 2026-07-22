@@ -305,6 +305,10 @@ tbody tr:hover { background: rgba(94, 168, 255, .035); }
 .key-item-title { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem; }
 .key-item-title strong { font-size: .82rem; }
 .key-item-meta { color: var(--muted); font-size: .68rem; overflow-wrap: anywhere; }
+.key-item-actions { display: flex; justify-content: flex-end; gap: .4rem; }
+.key-edit-form { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; gap: .5rem; padding: .7rem; border: 1px solid rgba(45, 212, 191, .2); border-radius: 10px; background: rgba(45, 212, 191, .055); }
+.key-edit-input { min-width: 0; border: 1px solid rgba(45, 212, 191, .3); border-radius: 8px; padding: .58rem .7rem; color: #dffff9; background: rgba(3, 12, 22, .7); font-family: "SFMono-Regular", Consolas, monospace; font-size: .76rem; letter-spacing: .04em; outline: none; }
+.key-edit-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(45, 212, 191, .11); }
 .settings-form { max-width: 800px; }
 .settings-form > p { margin: 0; color: var(--muted); line-height: 1.6; }
 .form-actions { display: flex; align-items: center; gap: .8rem; }
@@ -349,6 +353,10 @@ tbody tr:hover { background: rgba(94, 168, 255, .035); }
   .panel-heading { padding: 1rem; }
   .room-map-scroll { height: min(72vh, 640px); }
   .map-help { font-size: 9px; }
+  .key-item { grid-template-columns: 1fr; }
+  .key-item-actions { justify-content: flex-start; }
+  .key-edit-form { grid-template-columns: 1fr 1fr; }
+  .key-edit-input { grid-column: 1 / -1; }
 }
 
 @media (prefers-reduced-motion: reduce) {
