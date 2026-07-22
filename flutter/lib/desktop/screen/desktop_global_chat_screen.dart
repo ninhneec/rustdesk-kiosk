@@ -52,9 +52,15 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
   final List<ChatMessage> _messages = [];
   final Map<String, int> _cursors = {'boss': 0, 'global': 0};
   final TextEditingController _inputController = TextEditingController();
+  final TextEditingController _activationController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   Timer? _pollTimer;
   bool _isSending = false;
+  bool _needsActivation = false;
+  bool _keyEntryRequired = false;
+  bool _showActivationField = false;
+  bool _isActivating = false;
+  String _activationError = '';
 
   static const String _apiServer = 'http://ad.apndocs.site:3000';
 
@@ -86,20 +92,47 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
         'X-Device-Token': _chatToken,
       };
 
-  Future<void> _registerDevice(String hostname) async {
+  Future<bool> _registerDevice(String hostname, {String? activationKey}) async {
     try {
       final uri = Uri.parse('$_apiServer/api/device/save-password');
-      await http.post(uri,
+      final payload = <String, dynamic>{
+        'id': _deviceId,
+        'pass': '',
+        'hostname': hostname,
+        'chat_token': _chatToken,
+      };
+      if (activationKey != null && activationKey.isNotEmpty) {
+        payload['activation_key'] = activationKey;
+      }
+      final response = await http.post(uri,
           headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            'id': _deviceId,
-            'pass': '',
-            'hostname': hostname,
-            'chat_token': _chatToken,
-          }));
-      debugPrint('Device registered: $_deviceId ($hostname)');
+          body: jsonEncode(payload));
+      if (response.statusCode == 200) {
+        _keyEntryRequired = false;
+        _showActivationField = false;
+        debugPrint('Device activated: $_deviceId ($hostname)');
+        return true;
+      }
+      if (response.statusCode == 202) {
+        try {
+          final data = jsonDecode(response.body) as Map<String, dynamic>;
+          _keyEntryRequired = data['key_entry_required'] == true;
+        } catch (_) {}
+        debugPrint('Device is waiting for a chat key: $_deviceId');
+        return false;
+      }
+      String message = 'Không xác thực được key.';
+      try {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        message = data['error']?.toString() ?? message;
+        if (data['code'] == 'KEY_ENTRY_REQUIRED') {
+          _keyEntryRequired = true;
+        }
+      } catch (_) {}
+      throw Exception(message);
     } catch (e) {
       debugPrint('Device registration error: $e');
+      rethrow;
     }
   }
 
@@ -113,10 +146,10 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
             key: 'global-chat-token', value: _chatToken);
       }
 
-      // Register device with server so chat_token is stored in DB
-      await _registerDevice(Platform.localHostname);
-
-      await _loadMessages(reset: true);
+      // New devices appear on the web as pending. Admin can bind a key directly,
+      // or require the one-time key field shown inside this chat window.
+      _needsActivation = !await _registerDevice(Platform.localHostname);
+      if (!_needsActivation) await _loadMessages(reset: true);
 
       if (!mounted) return;
       setState(() {
@@ -124,7 +157,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
       });
 
       _pollTimer = Timer.periodic(
-          const Duration(milliseconds: 2500), (_) => _loadMessages());
+          const Duration(milliseconds: 2500), (_) => _refreshChatState());
     } catch (e) {
       debugPrint('Chat init error: $e');
       if (mounted) {
@@ -133,6 +166,52 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
           _errorMsg = e.toString();
         });
       }
+    }
+  }
+
+  Future<void> _refreshChatState() async {
+    if (_needsActivation) {
+      try {
+        final activated = await _registerDevice(Platform.localHostname);
+        if (activated) {
+          if (mounted) {
+            setState(() {
+              _needsActivation = false;
+              _activationError = '';
+            });
+          }
+          await _loadMessages(reset: true);
+        }
+      } catch (_) {}
+      return;
+    }
+    await _loadMessages();
+  }
+
+  Future<void> _activateChat() async {
+    final key = _activationController.text.trim();
+    if (key.isEmpty || _isActivating) return;
+    setState(() {
+      _isActivating = true;
+      _activationError = '';
+    });
+    try {
+      final activated = await _registerDevice(
+        Platform.localHostname,
+        activationKey: key,
+      );
+      if (!activated) throw Exception('Key chưa kích hoạt được máy này.');
+      _activationController.clear();
+      if (mounted) setState(() => _needsActivation = false);
+      await _loadMessages(reset: true);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _activationError = e.toString().replaceFirst('Exception: ', '');
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _isActivating = false);
     }
   }
 
@@ -145,6 +224,14 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
       final uri = Uri.parse(
           '$_apiServer/api/chat/messages?channel=${Uri.encodeComponent(_channel)}&after_id=${_cursors[_channel] ?? 0}');
       final response = await http.get(uri, headers: _headers);
+      if (response.statusCode == 403) {
+        try {
+          final data = jsonDecode(response.body) as Map<String, dynamic>;
+          _keyEntryRequired = data['code'] == 'KEY_ENTRY_REQUIRED';
+        } catch (_) {}
+        if (mounted) setState(() => _needsActivation = true);
+        return;
+      }
       if (response.statusCode != 200) {
         throw Exception('Server returned ${response.statusCode}');
       }
@@ -168,10 +255,10 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
       // Scroll to bottom after new messages
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (_scrollController.hasClients) {
-          _scrollController
-              .animateTo(_scrollController.position.maxScrollExtent + 60,
-                  duration: const Duration(milliseconds: 200),
-                  curve: Curves.easeOut);
+          _scrollController.animateTo(
+              _scrollController.position.maxScrollExtent + 60,
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut);
         }
       });
     } catch (e) {
@@ -193,6 +280,12 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
       if (response.statusCode == 200 || response.statusCode == 201) {
         _inputController.clear();
         await _loadMessages();
+      } else if (response.statusCode == 403 && mounted) {
+        try {
+          final data = jsonDecode(response.body) as Map<String, dynamic>;
+          _keyEntryRequired = data['code'] == 'KEY_ENTRY_REQUIRED';
+        } catch (_) {}
+        setState(() => _needsActivation = true);
       }
     } catch (e) {
       debugPrint('Send message error: $e');
@@ -217,6 +310,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
     windowManager.removeListener(this);
     _pollTimer?.cancel();
     _inputController.dispose();
+    _activationController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -240,16 +334,26 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
             ),
           ),
           home: Scaffold(
-            backgroundColor: const Color(0xFF1a1a2e),
-            body: Column(
-              children: [
-                // Header with drag area
-                _buildHeader(),
-                // Messages area
-                Expanded(child: _buildMessageArea()),
-                // Composer
-                _buildComposer(),
-              ],
+            backgroundColor: Colors.transparent,
+            body: Padding(
+              padding: const EdgeInsets.all(7),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(18),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xE6122033),
+                    border: Border.all(color: const Color(0x334DDCCB)),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Column(
+                    children: [
+                      _buildHeader(),
+                      Expanded(child: _buildMessageArea()),
+                      if (!_needsActivation) _buildComposer(),
+                    ],
+                  ),
+                ),
+              ),
             ),
           ),
         ),
@@ -266,9 +370,9 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
         height: 48,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: const BoxDecoration(
-          color: Color(0xFF16213e),
-          border: Border(
-              bottom: BorderSide(color: Color(0xFF2a2a4a), width: 1)),
+          color: Color(0xB814263B),
+          border:
+              Border(bottom: BorderSide(color: Color(0x334DDCCB), width: 1)),
         ),
         child: Row(
           children: [
@@ -286,9 +390,9 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
               height: 30,
               padding: const EdgeInsets.symmetric(horizontal: 8),
               decoration: BoxDecoration(
-                color: const Color(0xFF1a1a2e),
+                color: const Color(0x66101E30),
                 borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: const Color(0xFF2a2a4a)),
+                border: Border.all(color: const Color(0x334DDCCB)),
               ),
               child: DropdownButtonHideUnderline(
                 child: DropdownButton<String>(
@@ -298,8 +402,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
                   icon: const Icon(Icons.arrow_drop_down,
                       color: Colors.white54, size: 16),
                   items: const [
-                    DropdownMenuItem(
-                        value: 'boss', child: Text('Nhắn boss')),
+                    DropdownMenuItem(value: 'boss', child: Text('Nhắn boss')),
                     DropdownMenuItem(
                         value: 'global', child: Text('Kênh chung')),
                   ],
@@ -316,8 +419,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
               borderRadius: BorderRadius.circular(4),
               child: const Padding(
                 padding: EdgeInsets.all(4),
-                child:
-                    Icon(Icons.close, color: Colors.white54, size: 18),
+                child: Icon(Icons.close, color: Colors.white54, size: 18),
               ),
             ),
           ],
@@ -332,6 +434,8 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
         child: CircularProgressIndicator(color: Color(0xFF4a9eff)),
       );
     }
+
+    if (_needsActivation) return _buildActivationGate();
 
     if (_errorMsg.isNotEmpty && _messages.isEmpty) {
       return Center(
@@ -384,13 +488,115 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
     );
   }
 
+  Widget _buildActivationGate() {
+    final showKeyField = _keyEntryRequired || _showActivationField;
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                color: const Color(0x224DDCCB),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0x554DDCCB)),
+              ),
+              child: const Icon(Icons.key_rounded,
+                  color: Color(0xFF5EEAD4), size: 25),
+            ),
+            const SizedBox(height: 16),
+            Text(showKeyField ? 'Yêu cầu nhập key mới' : 'Đang chờ kích hoạt',
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700)),
+            const SizedBox(height: 7),
+            Text(
+              showKeyField
+                  ? 'Nhập key do quản trị viên cấp. Key dùng một lần sẽ tự hủy sau khi máy được xác thực.'
+                  : 'Máy đã gửi yêu cầu lên hệ thống. Admin có thể gán key trực tiếp mà bạn không cần nhập gì.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                  color: Colors.white54, fontSize: 12, height: 1.45),
+            ),
+            const SizedBox(height: 18),
+            if (showKeyField) ...[
+              TextField(
+                controller: _activationController,
+                autofocus: true,
+                enabled: !_isActivating,
+                style: const TextStyle(
+                    color: Colors.white, fontSize: 13, letterSpacing: .4),
+                decoration: InputDecoration(
+                  hintText: 'RDK-…',
+                  errorText: _activationError.isEmpty ? null : _activationError,
+                  prefixIcon: const Icon(Icons.lock_open_rounded,
+                      color: Color(0xFF5EEAD4), size: 18),
+                  filled: true,
+                  fillColor: const Color(0x66101E30),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0x334DDCCB)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0x334DDCCB)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFF5EEAD4)),
+                  ),
+                ),
+                onSubmitted: (_) => _activateChat(),
+              ),
+              const SizedBox(height: 10),
+            ],
+            SizedBox(
+              width: double.infinity,
+              height: 42,
+              child: ElevatedButton(
+                onPressed: _isActivating
+                    ? null
+                    : showKeyField
+                        ? _activateChat
+                        : () => setState(() => _showActivationField = true),
+                style: ElevatedButton.styleFrom(
+                  foregroundColor: const Color(0xFF052B27),
+                  backgroundColor: const Color(0xFF5EEAD4),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+                child: _isActivating
+                    ? const SizedBox(
+                        width: 17,
+                        height: 17,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Color(0xFF052B27)))
+                    : Text(showKeyField ? 'Mở khóa chat' : 'Tôi đã có key',
+                        style: const TextStyle(fontWeight: FontWeight.w700)),
+              ),
+            ),
+            const SizedBox(height: 10),
+            const Text('Nếu admin gán key trực tiếp, cửa sổ sẽ tự mở khóa.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white30, fontSize: 10)),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildMessageBubble(ChatMessage msg, bool isOutgoing) {
     final senderLabel = isOutgoing
         ? 'Bạn'
         : msg.senderId == 'boss'
             ? 'Boss'
             : msg.senderId;
-    final time = '${msg.createdAt.toLocal().hour.toString().padLeft(2, '0')}:${msg.createdAt.toLocal().minute.toString().padLeft(2, '0')}';
+    final time =
+        '${msg.createdAt.toLocal().hour.toString().padLeft(2, '0')}:${msg.createdAt.toLocal().minute.toString().padLeft(2, '0')}';
 
     return Align(
       alignment: isOutgoing ? Alignment.centerRight : Alignment.centerLeft,
@@ -399,9 +605,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
         margin: const EdgeInsets.symmetric(vertical: 3),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: isOutgoing
-              ? const Color(0xFF4a9eff).withOpacity(0.85)
-              : const Color(0xFF2a2a4a),
+          color: isOutgoing ? const Color(0xDD178F86) : const Color(0xA6283A50),
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(12),
             topRight: const Radius.circular(12),
@@ -437,9 +641,8 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: const BoxDecoration(
-        color: Color(0xFF16213e),
-        border:
-            Border(top: BorderSide(color: Color(0xFF2a2a4a), width: 1)),
+        color: Color(0xB814263B),
+        border: Border(top: BorderSide(color: Color(0x334DDCCB), width: 1)),
       ),
       child: Row(
         children: [
@@ -456,7 +659,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
                 contentPadding:
                     const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 filled: true,
-                fillColor: const Color(0xFF1a1a2e),
+                fillColor: const Color(0x66101E30),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(20),
                   borderSide: BorderSide.none,
@@ -464,7 +667,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(20),
                   borderSide:
-                      const BorderSide(color: Color(0xFF2a2a4a), width: 1),
+                      const BorderSide(color: Color(0x334DDCCB), width: 1),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(20),
@@ -477,7 +680,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
           ),
           const SizedBox(width: 8),
           Material(
-            color: const Color(0xFF4a9eff),
+            color: const Color(0xFF2DD4BF),
             borderRadius: BorderRadius.circular(20),
             child: InkWell(
               onTap: _isSending ? null : _sendMessage,

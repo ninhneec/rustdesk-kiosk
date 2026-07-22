@@ -1,154 +1,144 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="vi">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RustDesk Control Panel</title>
-    <link rel="stylesheet" href="style.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#07111f">
+  <title>RustDesk Kiosk · Trung tâm hỗ trợ</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="app-container">
-        <header class="header">
-            <div class="header-content">
-                <div class="logo">
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <rect x="2" y="3" width="20" height="14" rx="2" stroke="currentColor" stroke-width="2"/>
-                        <path d="M8 21H16M12 17V21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                    </svg>
-                    <h1>Device Management</h1>
-                </div>
-                <div class="status-badge">
-                    <span class="dot pulse"></span>
-                    <span id="device-count">0 Online</span>
-                </div>
-            </div>
-        </header>
+  <section id="login-view" class="auth-view">
+    <form id="login-form" class="auth-card">
+      <div class="brand-mark" aria-hidden="true">R</div>
+      <p class="eyebrow">RUSTDESK KIOSK</p>
+      <h1>Trung tâm hỗ trợ</h1>
+      <p class="auth-copy">Đăng nhập để quản lý máy, key truy cập và cảnh báo chat theo thời gian thực.</p>
+      <label for="admin-token">Mã quản trị</label>
+      <input id="admin-token" name="token" type="password" autocomplete="current-password" required autofocus>
+      <button class="button primary wide" type="submit">Đăng nhập</button>
+      <p id="login-error" class="form-message danger" role="alert"></p>
+    </form>
+  </section>
 
-        <div class="tabs-container">
-            <button class="tab-btn active" onclick="switchTab('list')">Danh Sách Thiết Bị</button>
-            <button class="tab-btn" onclick="switchTab('map')">Sơ Đồ P204</button>
+  <div id="app" class="app-shell" hidden>
+    <header class="topbar">
+      <a class="brand" href="#devices" aria-label="RustDesk Kiosk">
+        <span class="brand-mark small" aria-hidden="true">R</span>
+        <span><strong>RustDesk Kiosk</strong><small>Support operations</small></span>
+      </a>
+      <div class="topbar-actions">
+        <span id="realtime-status" class="live-pill"><i></i> Đang kết nối</span>
+        <button id="notification-btn" class="button ghost compact" type="button">Bật thông báo</button>
+        <button id="logout-btn" class="button ghost compact" type="button">Đăng xuất</button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">PHÒNG MÁY · P204</p>
+          <h1>Điều phối hỗ trợ, ngay khi có tin nhắn.</h1>
+          <p>Máy tự đăng ký. Admin cấp key theo thiết bị hoặc chỗ ngồi; mọi tin nhắn đều nổi cảnh báo trên web.</p>
         </div>
+        <button id="hero-refresh-btn" class="button primary" type="button">Làm mới dữ liệu</button>
+      </section>
 
-        <main class="main-content" id="tab-list">
-            <section id="alert-panel" class="alert-panel" hidden>
-                <div class="alert-panel-heading">
-                    <div><strong>Cảnh báo từ chat</strong><span id="alert-count"></span></div>
-                    <span>Thiết bị gửi từ khóa cần chú ý</span>
-                </div>
-                <div id="alert-list"></div>
-            </section>
-            
-            <section class="settings-panel">
-                <div class="settings-header" onclick="document.getElementById('settings-content').hidden = !document.getElementById('settings-content').hidden">
-                    <div style="display: flex; align-items: center; gap: 0.5rem;">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/>
-                            <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
-                        </svg>
-                        <strong>Cấu hình Từ Khóa Cảnh Báo</strong>
-                    </div>
-                    <span style="font-size: 0.8rem; color: var(--text-secondary);">Nhấp để mở rộng/thu gọn</span>
-                </div>
-                <div id="settings-content" class="settings-content" hidden>
-                    <p style="margin-bottom: 0.75rem; color: var(--text-secondary);">Nhập các từ khóa cảnh báo, cách nhau bằng dấu phẩy (VD: khẩn cấp, cứu):</p>
-                    <textarea id="keywords-input" rows="2" placeholder="Đang tải..."></textarea>
-                    <div style="display: flex; align-items: center; gap: 1rem; margin-top: 1rem;">
-                        <button id="save-keywords-btn" class="btn-connect">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
-                                <polyline points="17 21 17 13 7 13 7 21"/>
-                                <polyline points="7 3 7 8 15 8"/>
-                            </svg>
-                            Lưu cấu hình
-                        </button>
-                        <span id="settings-message"></span>
-                    </div>
-                </div>
-            </section>
-            <div class="search-bar">
-                <input type="text" id="search-input" placeholder="Tìm kiếm theo Hostname hoặc ID...">
-                <button id="refresh-btn" class="btn-icon" title="Làm mới">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M21 12a9 9 0 11-9-9c2.52 0 4.93 1 6.74 2.74L21 8M21 3v5h-5" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                </button>
-            </div>
+      <section class="metrics" aria-label="Tổng quan">
+        <article class="metric-card"><span>Đang online</span><strong id="metric-online">0</strong><small>trong 5 phút gần nhất</small></article>
+        <article class="metric-card accent"><span>Chat chưa xử lý</span><strong id="metric-alerts">0</strong><small>cần phản hồi</small></article>
+        <article class="metric-card"><span>Đã kích hoạt</span><strong id="metric-active">0</strong><small>máy có key hợp lệ</small></article>
+        <article class="metric-card warning"><span>Chờ cấp key</span><strong id="metric-pending">0</strong><small>máy mới đăng ký</small></article>
+      </section>
 
-            <div class="table-container">
-                <table class="devices-table">
-                    <thead>
-                        <tr>
-                            <th>Status</th>
-                            <th>Hostname</th>
-                            <th>RustDesk ID</th>
-                            <th>Mật khẩu</th>
-                            <th>Vị trí (Ghế)</th>
-                            <th>Last Seen</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody id="device-list">
-                        <!-- Items will be injected here by JS -->
-                    </tbody>
-                </table>
-            </div>
-        </main>
-
-        <main class="main-content" id="tab-map" style="display: none;">
-            <div class="map-controls">
-                <button class="btn-connect" onclick="zoomMap(0.1)">➕ Phóng to</button>
-                <button class="btn-connect" onclick="zoomMap(-0.1)">➖ Thu nhỏ</button>
-                <button class="btn-connect" onclick="resetZoom()">🔄 Đặt lại</button>
-            </div>
-            <div class="map-container-wrapper" id="map-container-wrapper">
-                <div class="map-grid-container" id="map-grid-container">
-                    <div id="deskGrid" class="desk-grid">
-                        <div class="desk-row" id="row4"><div class="row-label">Dãy 4</div></div>
-                        <div class="desk-row" id="row3"><div class="row-label">Dãy 3</div></div>
-                        <div class="desk-row" id="row2"><div class="row-label">Dãy 2</div></div>
-                        <div class="desk-row" id="row1"><div class="row-label">Dãy 1</div></div>
-                    </div>
-                </div>
-            </div>
-        </main>
-    </div>
-
-    <!-- Seat Assignment Modal -->
-    <div id="seat-modal" class="modal" hidden>
-        <div class="modal-content">
-            <h2 id="modal-seat-title">Gán Máy vào Ghế M01</h2>
-            <div class="modal-body">
-                <div id="modal-unassigned-view">
-                    <p>Chọn một thiết bị đang Online để gán vào vị trí này:</p>
-                    <select id="unassigned-device-select" class="device-select">
-                        <option value="">-- Chọn thiết bị --</option>
-                    </select>
-                    <div style="margin-top: 1rem; display: flex; gap: 0.5rem; justify-content: flex-end;">
-                        <button class="btn-cancel" onclick="closeSeatModal()">Hủy</button>
-                        <button class="btn-connect" onclick="assignSeat()">Gán Máy</button>
-                    </div>
-                </div>
-                
-                <div id="modal-assigned-view" hidden>
-                    <div class="device-info-box">
-                        <p><strong>Hostname:</strong> <span id="modal-hostname"></span></p>
-                        <p><strong>RustDesk ID:</strong> <span id="modal-rustdesk"></span></p>
-                        <p><strong>Mật khẩu:</strong> <span id="modal-password"></span></p>
-                    </div>
-                    <div style="margin-top: 1rem; display: flex; gap: 0.5rem; justify-content: flex-end;">
-                        <button class="btn-cancel" onclick="closeSeatModal()">Đóng</button>
-                        <button class="btn-danger" id="btn-unassign">Gỡ Máy khỏi Ghế</button>
-                        <button class="btn-connect" id="btn-connect-rd">Kết Nối RustDesk</button>
-                        <button class="btn-connect" id="btn-chat-rd">Chat</button>
-                    </div>
-                </div>
-            </div>
+      <section id="alert-panel" class="panel alert-center" hidden>
+        <div class="panel-heading">
+          <div><p class="eyebrow danger-text">TIN NHẮN MỚI</p><h2>Cần phản hồi</h2></div>
+          <span id="alert-count" class="counter danger-bg">0</span>
         </div>
-    </div>
+        <div id="alert-list" class="alert-list"></div>
+      </section>
 
-    <!-- Notification Toast -->
-    <div id="toast" class="toast">Đã sao chép vào bộ nhớ tạm!</div>
+      <nav class="section-tabs" aria-label="Khu vực quản lý">
+        <button class="tab-button active" data-tab="devices" type="button">Thiết bị</button>
+        <button class="tab-button" data-tab="map" type="button">Sơ đồ phòng</button>
+        <button class="tab-button" data-tab="keys" type="button">Key truy cập</button>
+        <button class="tab-button" data-tab="settings" type="button">Cảnh báo</button>
+      </nav>
 
-    <script src="app.js"></script>
+      <section id="tab-devices" class="tab-panel panel">
+        <div class="panel-heading toolbar-heading">
+          <div><p class="eyebrow">THIẾT BỊ</p><h2>Máy đã đăng ký</h2></div>
+          <div class="toolbar">
+            <label class="search-control"><span aria-hidden="true">⌕</span><input id="search-input" type="search" placeholder="Tìm hostname, ID, ghế…"></label>
+            <button id="require-all-keys-btn" class="button danger compact" type="button">Ép nhập key toàn bộ</button>
+            <button id="refresh-btn" class="button ghost compact" type="button">Làm mới</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Trạng thái</th><th>Máy</th><th>RustDesk ID</th><th>Vị trí</th><th>Chat key</th><th>Hoạt động</th><th></th></tr></thead>
+            <tbody id="device-list"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="tab-map" class="tab-panel panel" hidden>
+        <div class="panel-heading toolbar-heading">
+          <div><p class="eyebrow">LIVE MAP</p><h2>Sơ đồ chỗ ngồi P204</h2></div>
+          <div class="map-legend"><span><i class="legend-dot online"></i>Online</span><span><i class="legend-dot offline"></i>Offline</span><span><i class="legend-dot pending"></i>Chờ key</span></div>
+        </div>
+        <div id="desk-grid" class="desk-grid" aria-label="Sơ đồ 36 chỗ ngồi"></div>
+      </section>
+
+      <section id="tab-keys" class="tab-panel key-layout" hidden>
+        <article class="panel key-create-card">
+          <div class="panel-heading"><div><p class="eyebrow">KÍCH HOẠT CHAT</p><h2>Tạo và gán key</h2></div></div>
+          <form id="key-form" class="stack-form">
+            <label>Loại key
+              <select id="key-mode"><option value="bound">Gán thẳng vào máy</option><option value="one_time">Mã tự hủy sau một lần nhập</option></select>
+            </label>
+            <label>Thiết bị
+              <select id="key-device"><option value="">Chọn máy đang chờ…</option></select>
+            </label>
+            <div class="field-row">
+              <label>Chỗ ngồi<input id="key-seat" maxlength="24" placeholder="M01"></label>
+              <label>Tên key<input id="key-label" maxlength="80" placeholder="Máy thu ngân 01"></label>
+            </div>
+            <button class="button primary wide" type="submit">Sinh key và kích hoạt</button>
+          </form>
+          <div id="key-result" class="key-result" hidden>
+            <span>Key vừa tạo · chỉ hiển thị lần này</span>
+            <strong id="generated-key"></strong>
+            <button id="copy-key-btn" class="button ghost compact" type="button">Sao chép key</button>
+          </div>
+        </article>
+        <article class="panel">
+          <div class="panel-heading"><div><p class="eyebrow">DANH SÁCH KEY</p><h2>Quyền chat đã cấp</h2></div><span id="key-count" class="counter">0</span></div>
+          <div id="key-list" class="key-list"></div>
+        </article>
+      </section>
+
+      <section id="tab-settings" class="tab-panel panel" hidden>
+        <div class="panel-heading"><div><p class="eyebrow">ƯU TIÊN</p><h2>Từ khóa cảnh báo khẩn</h2></div></div>
+        <form id="keyword-form" class="settings-form">
+          <p>Mọi tin nhắn từ app đều tạo thông báo. Tin có các từ dưới đây sẽ được đánh dấu khẩn và đưa lên đầu.</p>
+          <label for="keywords-input">Từ khóa, cách nhau bằng dấu phẩy</label>
+          <textarea id="keywords-input" rows="4" placeholder="khẩn cấp, cứu, nguy hiểm, help, sos"></textarea>
+          <div class="form-actions"><button class="button primary" type="submit">Lưu cấu hình</button><span id="settings-message" class="form-message"></span></div>
+        </form>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="seat-modal" class="modal-card">
+    <form method="dialog" class="modal-close-row"><button class="icon-button" aria-label="Đóng">×</button></form>
+    <p class="eyebrow">CHỖ NGỒI</p>
+    <h2 id="modal-seat-title">M01</h2>
+    <div id="modal-content"></div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="app.js"></script>
 </body>
 </html>

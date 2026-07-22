@@ -151,7 +151,9 @@ void runStandaloneGlobalChat() async {
     await windowManager.setMinimumSize(const Size(320, 420));
     await windowManager.show();
     await windowManager.focus();
-    await windowManager.setOpacity(1);
+    // The support panel is a lightweight glass overlay. RustDesk's service and
+    // remote-control core keep running in the background; the main window stays hidden.
+    await windowManager.setOpacity(0.94);
   });
 }
 
@@ -192,7 +194,7 @@ void runMainApp(bool startService) async {
   // Set window option.
   WindowOptions windowOptions = getHiddenTitleBarWindowOptions(
       isMainWindow: true, alwaysOnTop: alwaysOnTop);
-      
+
   bool handledByUniLinks = false;
   windowManager.waitUntilReadyToShow(windowOptions, () async {
     // Restore the location of the main window before window hide or show.
@@ -200,28 +202,28 @@ void runMainApp(bool startService) async {
     // Check the startup argument, if we successfully handle the argument, we keep the main window hidden.
     handledByUniLinks = await initUniLinks();
     debugPrint("handled by uni links: $handledByUniLinks");
-    
+
     windowManager.setOpacity(1);
     windowManager.setTitle(getWindowName());
     // Do not use `windowManager.setResizable()` here.
     setResizable(!bind.isIncomingOnly());
   }).then((_) {
     // [CUSTOM KIOSK MODE]
-      if (kBootArgs.contains('--silent-start')) {
-        // System boot: hide main window, do not open anything
-        windowManager.hide();
-      } else if (kBootArgs.contains('--open-global-chat')) {
-        // Opened via hotkey or tray when app was completely closed
-        windowManager.hide();
-        Future.delayed(const Duration(milliseconds: 500), () {
-          rustDeskWinManager.newGlobalChat();
-        });
-      } else {
-        // Not a silent start (e.g. user clicked desktop shortcut)
-        if (!handledByUniLinks) {
-          windowManager.show();
-        }
+    if (kBootArgs.contains('--silent-start')) {
+      // System boot: hide main window, do not open anything
+      windowManager.hide();
+    } else if (kBootArgs.contains('--open-global-chat')) {
+      // Opened via hotkey or tray when app was completely closed
+      windowManager.hide();
+      Future.delayed(const Duration(milliseconds: 500), () {
+        rustDeskWinManager.newGlobalChat();
+      });
+    } else {
+      // Not a silent start (e.g. user clicked desktop shortcut)
+      if (!handledByUniLinks) {
+        windowManager.show();
       }
+    }
     // [/CUSTOM KIOSK MODE]
   });
 }
@@ -638,9 +640,10 @@ _registerEventHandler() {
       NativeUiHandler.instance.onEvent(evt);
     });
   }
-  
+
   if (isDesktop && desktopType == DesktopType.main) {
-    platformFFI.registerEventHandler('open_global_chat', 'open_global_chat', (evt) async {
+    platformFFI.registerEventHandler('open_global_chat', 'open_global_chat',
+        (evt) async {
       try {
         await rustDeskWinManager.newGlobalChat();
       } catch (error, stackTrace) {

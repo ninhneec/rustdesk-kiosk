@@ -3,11 +3,30 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Boss chat</title>
+  <meta name="theme-color" content="#0b1828">
+  <title>Chat hỗ trợ</title>
   <link rel="stylesheet" href="chat.css">
 </head>
 <body>
-  <main class="chat-shell"><header><div><h1 id="title">Nhân viên</h1><span id="status">Đang kết nối…</span></div><select id="channel"><option value="boss">Riêng</option><option value="global">Kênh chung</option></select></header><section id="messages" aria-live="polite"></section><form id="composer"><input id="message" maxlength="2000" autocomplete="off" placeholder="Nhập tin nhắn…"><button type="submit">Gửi</button></form></main>
+  <main class="chat-shell admin-chat">
+    <header>
+      <div class="chat-identity">
+        <span class="chat-avatar" aria-hidden="true">R</span>
+        <div><h1 id="title">Thiết bị</h1><span id="status">Đang kết nối…</span></div>
+      </div>
+      <div class="header-actions">
+        <select id="channel" aria-label="Kênh chat"><option value="boss">Chat riêng</option><option value="global">Kênh chung</option></select>
+        <button id="close-chat" type="button" title="Đóng" aria-label="Đóng cửa sổ chat">×</button>
+      </div>
+    </header>
+    <section id="messages" aria-live="polite">
+      <div id="empty-chat" class="empty-chat"><strong>Bắt đầu hỗ trợ</strong><span>Tin nhắn sẽ cập nhật tự động theo thời gian thực.</span></div>
+    </section>
+    <form id="composer">
+      <input id="message" maxlength="2000" autocomplete="off" placeholder="Nhập phản hồi…">
+      <button type="submit" aria-label="Gửi tin nhắn">Gửi</button>
+    </form>
+  </main>
   <script src="boss-chat.js"></script>
 </body>
 </html>

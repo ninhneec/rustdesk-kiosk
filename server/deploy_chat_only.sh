@@ -1,70 +1,73 @@
-#!/bin/bash
-# Script triển khai độc lập Web Chat Server lên VPS Ubuntu/Debian (Không kèm RustDesk Backend)
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Yêu cầu chạy bằng quyền root
-if [ "$EUID" -ne 0 ]; then
-  echo "Vui lòng chạy script bằng quyền root (sudo ./deploy_chat_only.sh)"
-  exit
+# Deploy only the independent chat/dashboard service. RustDesk remote traffic
+# continues to use the public RustDesk infrastructure configured in the client.
+if [ "${EUID}" -ne 0 ]; then
+  echo "Vui lòng chạy bằng quyền root: sudo ./deploy_chat_only.sh"
+  exit 1
 fi
 
-echo "===================================================="
-echo "BẮT ĐẦU CÀI ĐẶT WEB CHAT SERVER (ĐỘC LẬP)"
-echo "===================================================="
-
-# 1. Cập nhật hệ thống và cài đặt các phụ thuộc
-echo "[1/4] Cập nhật hệ thống và cài đặt Node.js, Git..."
-apt update && apt install -y curl wget git jq ufw xxd
-
-# Cài đặt Node.js (Version 20) & PM2
-if ! command -v node &> /dev/null; then
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-    apt install -y nodejs
-fi
-if ! command -v pm2 &> /dev/null; then
-    npm install -g pm2
-fi
-
-# 2. Lấy mã nguồn từ GitHub
-echo "[2/4] Tải mã nguồn từ GitHub..."
 REPO_DIR="/opt/rustdesk-kiosk"
-if [ -d "$REPO_DIR" ]; then
-    echo "Đã tìm thấy thư mục mã nguồn, tiến hành cập nhật..."
-    cd $REPO_DIR
-    git pull origin master
-else
-    git clone https://github.com/ninhneec/rustdesk-kiosk.git $REPO_DIR
-    cd $REPO_DIR
+SERVER_DIR="${REPO_DIR}/server"
+DATA_DIR="/var/lib/rustdesk-kiosk-chat"
+ENV_FILE="/etc/rustdesk-kiosk-chat.env"
+
+echo "[1/5] Cài Node.js và công cụ triển khai"
+apt-get update
+apt-get install -y curl git openssl ufw
+if ! command -v node >/dev/null 2>&1; then
+  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  apt-get install -y nodejs
+fi
+if ! command -v pm2 >/dev/null 2>&1; then
+  npm install --global pm2
 fi
 
-# 3. Triển khai Node.js Dashboard API
-echo "[3/4] Cài đặt và khởi chạy Chat Server..."
-cd $REPO_DIR/server
+echo "[2/5] Đồng bộ mã nguồn"
+if [ -d "${REPO_DIR}/.git" ]; then
+  git -C "${REPO_DIR}" fetch origin master
+  git -C "${REPO_DIR}" pull --ff-only origin master
+else
+  git clone https://github.com/ninhneec/rustdesk-kiosk.git "${REPO_DIR}"
+fi
 
-# Cài thư viện Node.js
-npm ci
+echo "[3/5] Chuẩn bị dữ liệu và secret bền vững"
+install -d -m 750 "${DATA_DIR}"
+if [ ! -f "${ENV_FILE}" ]; then
+  ADMIN_TOKEN="$(openssl rand -hex 32)"
+  CHAT_SESSION_SECRET="$(openssl rand -hex 48)"
+  umask 077
+  cat > "${ENV_FILE}" <<EOF
+ADMIN_TOKEN=${ADMIN_TOKEN}
+CHAT_SESSION_SECRET=${CHAT_SESSION_SECRET}
+DATABASE_PATH=${DATA_DIR}/devices.db
+PORT=3000
+NODE_ENV=production
+EOF
+  chmod 600 "${ENV_FILE}"
+  echo "Đã tạo secret mới tại ${ENV_FILE}"
+else
+  echo "Giữ nguyên secret hiện có tại ${ENV_FILE}"
+fi
 
-# Yêu cầu nhập ADMIN_TOKEN hoặc tạo ngẫu nhiên
-ADMIN_TOKEN=$(head -c 16 /dev/urandom | xxd -p)
-echo "Đã tạo ngẫu nhiên ADMIN_TOKEN: $ADMIN_TOKEN"
-
-# Khởi động bằng PM2
-pm2 delete kiosk-chat &> /dev/null || true
-ADMIN_TOKEN=$ADMIN_TOKEN PORT=3000 pm2 start index.js --name "kiosk-chat"
+echo "[4/5] Cài dependency và khởi động bằng PM2"
+cd "${SERVER_DIR}"
+npm ci --omit=dev
+set -a
+# shellcheck disable=SC1090
+. "${ENV_FILE}"
+set +a
+pm2 delete kiosk-chat >/dev/null 2>&1 || true
+pm2 start index.js --name kiosk-chat --update-env
 pm2 save
-pm2 startup
+pm2 startup systemd -u root --hp /root >/dev/null 2>&1 || true
 
-# 4. Thiết lập Tường lửa (UFW)
-echo "[4/4] Mở Port tường lửa..."
-ufw allow 22/tcp # Port SSH
-ufw allow 3000/tcp # Port cho Web API Dashboard
+echo "[5/5] Cấu hình tường lửa"
+ufw allow 22/tcp
+ufw allow 3000/tcp
 ufw --force enable
 
-echo "===================================================="
-echo "CÀI ĐẶT HOÀN TẤT!"
-echo "===================================================="
-echo ""
-echo "=> 1. Mật khẩu ADMIN_TOKEN của bạn là: $ADMIN_TOKEN"
-echo "=> 2. Chat Server đang chạy ẩn bằng PM2. Xem log bằng lệnh: pm2 logs kiosk-chat"
-echo "=> 3. Truy cập Dashboard API tại http://<IP_CUA_VPS>:3000"
-echo "=> LƯU LẠI ADMIN_TOKEN ở trên để điền vào mã nguồn Client app nhé!"
-echo ""
+echo "Hoàn tất. Dashboard: http://<IP_VPS>:3000"
+echo "ADMIN_TOKEN: $(sed -n 's/^ADMIN_TOKEN=//p' "${ENV_FILE}")"
+echo "Khuyến nghị đặt port 3000 sau reverse proxy HTTPS và chỉ mở 80/443."

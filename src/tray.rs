@@ -108,12 +108,12 @@ fn make_tray() -> hbb_common::ResultType<()> {
         start_query_session_count(ipc_sender.clone());
     });
     
-fn dispatch_global_chat_trigger() {
+fn dispatch_global_chat_trigger(toggle: bool) {
     #[cfg(windows)]
     {
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
-        use winapi::um::winuser::{FindWindowW, IsWindowVisible, SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW};
+        use winapi::um::winuser::{FindWindowW, IsWindowVisible, SetForegroundWindow, ShowWindow, SW_HIDE, SW_RESTORE, SW_SHOW};
 
         let class_name: Vec<u16> = OsStr::new("FLUTTER_RUNNER_WIN32_WINDOW")
             .encode_wide()
@@ -128,12 +128,14 @@ fn dispatch_global_chat_trigger() {
             let hwnd = FindWindowW(class_name.as_ptr(), window_name.as_ptr());
             if !hwnd.is_null() {
                 // The chat owns its own process and stays alive while hidden.
-                // A hotkey always restores it; it never depends on the main UI.
-                if IsWindowVisible(hwnd) == 0 {
+                // Repeating the hotkey toggles the same independent window.
+                if toggle && IsWindowVisible(hwnd) != 0 {
+                    ShowWindow(hwnd, SW_HIDE);
+                } else {
                     ShowWindow(hwnd, SW_SHOW);
+                    ShowWindow(hwnd, SW_RESTORE);
+                    SetForegroundWindow(hwnd);
                 }
-                ShowWindow(hwnd, SW_RESTORE);
-                SetForegroundWindow(hwnd);
                 return;
             }
         }
@@ -168,7 +170,7 @@ fn dispatch_global_chat_trigger() {
                     while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
                         if msg.message == WM_HOTKEY && (msg.wParam == 1001 || msg.wParam == 1002) {
                             let _ = std::thread::spawn(|| {
-                                dispatch_global_chat_trigger();
+                                dispatch_global_chat_trigger(true);
                             });
                         }
                         TranslateMessage(&msg);
@@ -238,7 +240,7 @@ fn dispatch_global_chat_trigger() {
         if let Ok(event) = menu_channel.try_recv() {
             // [CUSTOM KIOSK MODE]
             if event.id == support_i.id() {
-                dispatch_global_chat_trigger();
+                dispatch_global_chat_trigger(false);
             }
             // [/CUSTOM KIOSK MODE]
             else if let Some(quit_i) = &quit_i {

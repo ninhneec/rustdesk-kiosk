@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 # Script All-in-One triển khai Hệ thống RustDesk Server & Dashboard API lên VPS Ubuntu/Debian
 
 # Yêu cầu chạy bằng quyền root
@@ -102,13 +103,30 @@ cd $REPO_DIR/server
 # Cài thư viện Node.js
 npm ci
 
-# Yêu cầu nhập ADMIN_TOKEN hoặc tạo ngẫu nhiên
-ADMIN_TOKEN=$(head -c 16 /dev/urandom | xxd -p)
-echo "Đã tạo ngẫu nhiên ADMIN_TOKEN: $ADMIN_TOKEN"
+# Giữ secret và SQLite database qua các lần deploy.
+ENV_FILE="/etc/rustdesk-kiosk-chat.env"
+DATA_DIR="/var/lib/rustdesk-kiosk-chat"
+install -d -m 750 "$DATA_DIR"
+if [ ! -f "$ENV_FILE" ]; then
+    ADMIN_TOKEN=$(openssl rand -hex 32)
+    CHAT_SESSION_SECRET=$(openssl rand -hex 48)
+    umask 077
+    cat > "$ENV_FILE" <<EOF
+ADMIN_TOKEN=$ADMIN_TOKEN
+CHAT_SESSION_SECRET=$CHAT_SESSION_SECRET
+DATABASE_PATH=$DATA_DIR/devices.db
+PORT=3000
+NODE_ENV=production
+EOF
+    chmod 600 "$ENV_FILE"
+fi
+set -a
+. "$ENV_FILE"
+set +a
 
 # Khởi động bằng PM2
 pm2 delete kiosk-chat &> /dev/null || true
-ADMIN_TOKEN=$ADMIN_TOKEN PORT=3000 pm2 start index.js --name "kiosk-chat"
+pm2 start index.js --name "kiosk-chat" --update-env
 pm2 save
 pm2 startup
 
@@ -127,7 +145,7 @@ echo ""
 echo "=> 1. PUBLIC KEY của RustDesk Server là:"
 cat $REPO_DIR/server/data/id_ed25519.pub
 echo ""
-echo "=> 2. Mật khẩu ADMIN_TOKEN của bạn là: $ADMIN_TOKEN"
+echo "=> 2. Mật khẩu ADMIN_TOKEN của bạn là: $(sed -n 's/^ADMIN_TOKEN=//p' "$ENV_FILE")"
 echo "=> 3. Chat Server đang chạy ẩn bằng PM2. Xem log bằng lệnh: pm2 logs kiosk-chat"
 echo "=> 4. Truy cập Dashboard API tại http://<IP_CUA_VPS>:3000"
 echo "=> 5. LƯU LẠI Public Key và ADMIN_TOKEN ở trên để điền vào mã nguồn Client app nhé!"

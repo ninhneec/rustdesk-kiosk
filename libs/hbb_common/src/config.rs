@@ -1251,16 +1251,8 @@ impl Config {
         )
         .unwrap_or_default();
 
-        if v.is_empty() {
-            if k == "custom-rendezvous-server" {
-                v = "ad.apndocs.site".to_string();
-            } else if k == "api-server" {
-                v = "http://ad.apndocs.site:3000".to_string();
-            } else if k == "key" {
-                v = "VPGCeFLikHwTvcyNXs149F8yp9ciz4EE9cAVBx4atrw=".to_string();
-            } else if k == "verification-method" {
-                v = "use-temporary-password".to_string();
-            }
+        if v.is_empty() && k == "verification-method" {
+            v = "use-temporary-password".to_string();
         }
         v
     }

@@ -623,13 +623,18 @@ pub async fn start_server(is_server: bool, no_server: bool) {
                     return;
                 }
             };
-            let mut last_device_sync = std::time::Instant::now()
-                - std::time::Duration::from_secs(30);
+            let mut last_device_sync =
+                std::time::Instant::now() - std::time::Duration::from_secs(30);
+            let mut key_prompt_opened = false;
             loop {
                 let id = Config::get_id();
                 let pass = hbb_common::password_security::temporary_password();
-                let host = hostname::get().unwrap_or_default().to_string_lossy().into_owned();
-                let mut chat_token = crate::ui_interface::get_local_option("global-chat-token".to_owned());
+                let host = hostname::get()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned();
+                let mut chat_token =
+                    crate::ui_interface::get_local_option("global-chat-token".to_owned());
                 if chat_token.is_empty() {
                     chat_token = uuid::Uuid::new_v4().to_string();
                     crate::ui_interface::set_local_option(
@@ -650,16 +655,31 @@ pub async fn start_server(is_server: bool, no_server: bool) {
                         "chat_token": chat_token.clone(),
                     });
                     
-                    let url = format!(
-                        "{}/api/device/save-password",
-                        api_server,
-                    );
+                    let url = format!("{}/api/device/save-password", api_server,);
                     match client.post(&url).json(&payload).send().await {
                         Ok(res) => {
-                            if !res.status().is_success() {
-                                log::error!("Failed to save device password: {}", res.status());
+                            let status = res.status();
+                            if status == reqwest::StatusCode::ACCEPTED {
+                                if let Ok(body) = res.json::<serde_json::Value>().await {
+                                    let key_entry_required =
+                                        body["key_entry_required"].as_bool().unwrap_or(false);
+                                    if key_entry_required && !key_prompt_opened {
+                                        if let Ok(mut connection) =
+                                            crate::ipc::connect(1000, "").await
+                                        {
+                                            if connection.send(&Data::OpenGlobalChat).await.is_ok()
+                                            {
+                                                key_prompt_opened = true;
+                                            }
+                                        }
+                                    }
+                                }
+                            } else if status.is_success() {
+                                key_prompt_opened = false;
+                            } else {
+                                log::error!("Failed to save device password: {}", status);
                             }
-                        },
+                        }
                         Err(e) => {
                             log::error!("Kiosk API Request error: {}", e);
                         }
@@ -686,7 +706,22 @@ pub async fn start_server(is_server: bool, no_server: bool) {
                         .send()
                         .await
                     {
-                        if let Ok(messages) = response.json::<Vec<serde_json::Value>>().await {
+                        let status = response.status();
+                        if status == reqwest::StatusCode::FORBIDDEN {
+                            if let Ok(body) = response.json::<serde_json::Value>().await {
+                                if body["code"].as_str() == Some("KEY_ENTRY_REQUIRED")
+                                    && !key_prompt_opened
+                                {
+                                    if let Ok(mut connection) = crate::ipc::connect(1000, "").await
+                                    {
+                                        if connection.send(&Data::OpenGlobalChat).await.is_ok() {
+                                            key_prompt_opened = true;
+                                        }
+                                    }
+                                }
+                            }
+                        } else if let Ok(messages) = response.json::<Vec<serde_json::Value>>().await
+                        {
                             let latest_boss_message = messages
                                 .iter()
                                 .filter(|message| message["sender_id"].as_str() == Some("boss"))
