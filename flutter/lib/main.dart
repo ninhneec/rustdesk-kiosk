@@ -102,14 +102,10 @@ Future<void> main(List<String> args) async {
         );
         break;
       case WindowType.GlobalChat:
-        // Set desktop type to main or custom, but since it's just a webview,
-        // we can reuse desktopType = DesktopType.main or create a new one.
-        // Actually, we don't strictly need a new DesktopType if we don't rely on it.
-        // But let's set it to main to avoid assertions.
         desktopType = DesktopType.main;
         runMultiWindow(
           argument,
-          kAppTypeDesktopGlobalChat,
+          kAppTypeMain,
         );
         break;
       default:
@@ -256,12 +252,14 @@ void runMultiWindow(
         params: argument,
       );
       break;
-    case kAppTypeDesktopGlobalChat:
-      widget = const DesktopGlobalChatScreen();
-      break;
     default:
-      // no such appType
-      exit(0);
+      if (kWindowType == WindowType.GlobalChat) {
+        widget = const DesktopGlobalChatScreen();
+      } else {
+        // no such appType
+        exit(0);
+      }
+      break;
   }
   _runApp(
     title,
@@ -308,17 +306,16 @@ void runMultiWindow(
     case kAppTypeDesktopTerminal:
       await restoreWindowPosition(WindowType.Terminal, windowId: kWindowId!);
       break;
-    case kAppTypeDesktopGlobalChat:
-      final wc = WindowController.fromWindowId(kWindowId!);
-      await wc.showTitleBar(false);
-      await wc.setFrame(const Offset(100, 100) & const Size(360, 540));
-      await wc.center();
-      await wc.show();
-      await wc.focus();
-      break;
     default:
-      // no such appType
-      exit(0);
+      if (kWindowType == WindowType.GlobalChat) {
+        final wc = WindowController.fromWindowId(kWindowId!);
+        await wc.showTitleBar(false);
+        await wc.setFrame(const Offset(100, 100) & const Size(360, 540));
+        await wc.center();
+        await wc.show();
+        await wc.focus();
+      }
+      break;
   }
   // show window from hidden status
   WindowController.fromWindowId(kWindowId!).show();
