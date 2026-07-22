@@ -6,6 +6,19 @@ const loginView = $('#login-view');
 const appView = $('#app');
 const toast = $('#toast');
 let toastTimer;
+const mapView = {
+  scale: 1,
+  x: 0,
+  y: 0,
+  minScale: 0.55,
+  maxScale: 2.2,
+  initialized: false,
+  rendered: false,
+  dragging: false,
+  moved: false,
+  pointerId: null,
+  suppressClickUntil: 0,
+};
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -282,7 +295,11 @@ function renderMap() {
       codes.append(photoCode, seatCode);
       const deviceName = element('span', 'desk-device', device ? (device.hostname || device.id) : 'Chưa gán máy');
       desk.append(equipment, codes, deviceName);
-      desk.addEventListener('click', () => openSeatModal(seat, device));
+      desk.addEventListener('click', () => {
+        grid.querySelector('.desk.selected')?.classList.remove('selected');
+        desk.classList.add('selected');
+        openSeatModal(seat, device);
+      });
       line.append(desk);
     });
     row.append(line);
@@ -304,6 +321,132 @@ function renderMap() {
     element('span', 'front-door', 'CỬA'),
   );
   grid.append(topWall, roomBody, bottomWall);
+  if (!mapView.rendered) {
+    mapView.rendered = true;
+    requestAnimationFrame(fitMapView);
+  }
+}
+
+function clampMapView() {
+  const canvas = $('#map-canvas');
+  const grid = $('#desk-grid');
+  if (!canvas || !grid || !canvas.clientWidth || !grid.offsetWidth) return;
+  const margin = 70;
+  const renderedWidth = grid.offsetWidth * mapView.scale;
+  const renderedHeight = grid.offsetHeight * mapView.scale;
+  const clampAxis = (position, viewportSize, contentSize) => {
+    if (contentSize > viewportSize) return Math.min(margin, Math.max(viewportSize - contentSize - margin, position));
+    const centered = (viewportSize - contentSize) / 2;
+    const freedom = Math.min(160, Math.max(55, (viewportSize - contentSize) / 2));
+    return Math.min(centered + freedom, Math.max(centered - freedom, position));
+  };
+  mapView.x = clampAxis(mapView.x, canvas.clientWidth, renderedWidth);
+  mapView.y = clampAxis(mapView.y, canvas.clientHeight, renderedHeight);
+}
+
+function applyMapView() {
+  const grid = $('#desk-grid');
+  if (!grid) return;
+  clampMapView();
+  grid.style.transform = `translate3d(${mapView.x}px, ${mapView.y}px, 0) scale(${mapView.scale})`;
+  $('#map-zoom-level').value = `${Math.round(mapView.scale * 100)}%`;
+}
+
+function fitMapView() {
+  const canvas = $('#map-canvas');
+  const grid = $('#desk-grid');
+  if (!canvas || !grid || !canvas.clientWidth || !grid.offsetWidth) return;
+  const padding = 28;
+  mapView.scale = Math.max(mapView.minScale, Math.min(1, (canvas.clientWidth - padding * 2) / grid.offsetWidth, (canvas.clientHeight - padding * 2) / grid.offsetHeight));
+  mapView.x = (canvas.clientWidth - grid.offsetWidth * mapView.scale) / 2;
+  mapView.y = (canvas.clientHeight - grid.offsetHeight * mapView.scale) / 2;
+  mapView.initialized = true;
+  applyMapView();
+}
+
+function zoomMap(nextScale, clientX, clientY) {
+  const canvas = $('#map-canvas');
+  if (!canvas || !mapView.initialized) return;
+  const rect = canvas.getBoundingClientRect();
+  const localX = (clientX ?? (rect.left + rect.width / 2)) - rect.left;
+  const localY = (clientY ?? (rect.top + rect.height / 2)) - rect.top;
+  const worldX = (localX - mapView.x) / mapView.scale;
+  const worldY = (localY - mapView.y) / mapView.scale;
+  mapView.scale = Math.max(mapView.minScale, Math.min(mapView.maxScale, nextScale));
+  mapView.x = localX - worldX * mapView.scale;
+  mapView.y = localY - worldY * mapView.scale;
+  applyMapView();
+}
+
+function setupMapInteractions() {
+  const canvas = $('#map-canvas');
+  const grid = $('#desk-grid');
+  if (!canvas || !grid) return;
+
+  $('#map-zoom-in').addEventListener('click', () => zoomMap(mapView.scale * 1.2));
+  $('#map-zoom-out').addEventListener('click', () => zoomMap(mapView.scale / 1.2));
+  $('#map-fit').addEventListener('click', fitMapView);
+  canvas.addEventListener('wheel', (event) => {
+    event.preventDefault();
+    zoomMap(mapView.scale * (event.deltaY < 0 ? 1.12 : 1 / 1.12), event.clientX, event.clientY);
+  }, { passive: false });
+  canvas.addEventListener('dblclick', (event) => {
+    if (event.target.closest('.desk, .map-controls')) return;
+    event.preventDefault();
+    zoomMap(mapView.scale * 1.35, event.clientX, event.clientY);
+  });
+  canvas.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0 || event.target.closest('.map-controls')) return;
+    mapView.dragging = true;
+    mapView.moved = false;
+    mapView.pointerId = event.pointerId;
+    mapView.startClientX = event.clientX;
+    mapView.startClientY = event.clientY;
+    mapView.startX = mapView.x;
+    mapView.startY = mapView.y;
+    canvas.classList.add('is-dragging');
+    canvas.setPointerCapture(event.pointerId);
+  });
+  canvas.addEventListener('pointermove', (event) => {
+    if (!mapView.dragging || event.pointerId !== mapView.pointerId) return;
+    const deltaX = event.clientX - mapView.startClientX;
+    const deltaY = event.clientY - mapView.startClientY;
+    if (Math.hypot(deltaX, deltaY) > 4) mapView.moved = true;
+    mapView.x = mapView.startX + deltaX;
+    mapView.y = mapView.startY + deltaY;
+    applyMapView();
+  });
+  const finishDrag = (event) => {
+    if (!mapView.dragging || event.pointerId !== mapView.pointerId) return;
+    if (mapView.moved) mapView.suppressClickUntil = performance.now() + 250;
+    mapView.dragging = false;
+    mapView.pointerId = null;
+    canvas.classList.remove('is-dragging');
+    if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+  };
+  canvas.addEventListener('pointerup', finishDrag);
+  canvas.addEventListener('pointercancel', finishDrag);
+  grid.addEventListener('click', (event) => {
+    if (performance.now() >= mapView.suppressClickUntil) return;
+    event.preventDefault();
+    event.stopPropagation();
+  }, true);
+  canvas.addEventListener('keydown', (event) => {
+    const step = event.shiftKey ? 90 : 45;
+    if (event.key === '+' || event.key === '=') zoomMap(mapView.scale * 1.2);
+    else if (event.key === '-') zoomMap(mapView.scale / 1.2);
+    else if (event.key === '0' || event.key === 'Home') fitMapView();
+    else if (event.key === 'ArrowLeft') mapView.x += step;
+    else if (event.key === 'ArrowRight') mapView.x -= step;
+    else if (event.key === 'ArrowUp') mapView.y += step;
+    else if (event.key === 'ArrowDown') mapView.y -= step;
+    else return;
+    event.preventDefault();
+    applyMapView();
+  });
+  window.addEventListener('resize', () => {
+    if (!$('#tab-map').hidden) fitMapView();
+  });
 }
 
 function renderKeyDeviceOptions() {
@@ -511,6 +654,7 @@ function switchTab(tab) {
   document.querySelectorAll('.tab-button').forEach((button) => button.classList.toggle('active', button.dataset.tab === tab));
   document.querySelectorAll('.tab-panel').forEach((panel) => { panel.hidden = panel.id !== `tab-${tab}`; });
   history.replaceState(null, '', `#${tab}`);
+  if (tab === 'map') requestAnimationFrame(() => mapView.initialized ? applyMapView() : fitMapView());
 }
 
 $('#login-form').addEventListener('submit', async (event) => {
@@ -590,6 +734,8 @@ $('#keyword-form').addEventListener('submit', async (event) => {
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && !appView.hidden) refreshAll({ quiet: true });
 });
+
+setupMapInteractions();
 
 (async function bootstrap() {
   try {

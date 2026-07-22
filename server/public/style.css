@@ -185,8 +185,22 @@ tbody tr:hover { background: rgba(94, 168, 255, .035); }
 .danger-text { color: #fb8da0; }
 
 .map-note { display: block; margin-top: .35rem; color: var(--muted); font-size: .68rem; font-weight: 500; }
-.room-map-scroll { overflow: auto; padding: 1rem; background: rgba(3, 12, 22, .35); }
+.room-map-scroll { position: relative; height: clamp(540px, 68vh, 760px); overflow: hidden; background: radial-gradient(circle at 50% 45%, rgba(30, 61, 75, .38), rgba(3, 12, 22, .62)); cursor: grab; isolation: isolate; touch-action: none; user-select: none; }
+.room-map-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.room-map-scroll.is-dragging { cursor: grabbing; }
+.map-controls { position: absolute; z-index: 12; top: 14px; right: 14px; display: grid; grid-template-columns: 38px 38px 38px auto; align-items: center; overflow: hidden; border: 1px solid rgba(177, 205, 218, .24); border-radius: 12px; background: rgba(6, 18, 30, .9); box-shadow: 0 10px 30px rgba(3, 12, 22, .32), inset 0 1px rgba(255,255,255,.05); backdrop-filter: blur(12px); }
+.map-controls button { width: 38px; height: 38px; border: 0; border-right: 1px solid rgba(177, 205, 218, .16); color: #e9f8f6; background: transparent; cursor: pointer; font-size: 20px; font-weight: 750; transition: color .18s, background .18s, transform .12s; }
+.map-controls button:hover { color: #76ead7; background: rgba(45, 212, 191, .12); }
+.map-controls button:active { transform: scale(.92); }
+.map-controls button:focus-visible { position: relative; z-index: 1; outline: 2px solid var(--accent); outline-offset: -3px; }
+.map-controls .map-fit-button { font-size: 18px; }
+.map-controls output { min-width: 54px; padding: 0 10px; color: #9fb3c2; font-family: "SFMono-Regular", Consolas, monospace; font-size: 11px; font-variant-numeric: tabular-nums; text-align: center; }
+.map-help { position: absolute; z-index: 11; left: 50%; bottom: 14px; max-width: calc(100% - 28px); padding: 7px 12px; transform: translateX(-50%); border: 1px solid rgba(177, 205, 218, .18); border-radius: 8px; color: #a9bbc7; background: rgba(6, 18, 30, .82); box-shadow: 0 8px 24px rgba(3, 12, 22, .25); pointer-events: none; font-size: 10px; font-weight: 650; letter-spacing: .02em; white-space: nowrap; backdrop-filter: blur(9px); }
 .room-plan {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1260px;
   min-width: 1260px;
   padding: 14px 16px 10px;
   overflow: hidden;
@@ -198,6 +212,8 @@ tbody tr:hover { background: rgba(94, 168, 255, .035); }
     linear-gradient(90deg, rgba(106, 117, 124, .08) 1px, transparent 1px);
   background-size: 44px 44px;
   box-shadow: inset 0 0 35px rgba(36, 49, 58, .16), 0 18px 50px rgba(0, 0, 0, .2);
+  transform-origin: 0 0;
+  will-change: transform;
 }
 .room-top-wall { position: relative; height: 58px; border-bottom: 4px solid #c9cdd0; }
 .rear-window { position: absolute; top: -8px; width: 135px; height: 32px; display: grid; place-items: center; border: 5px solid #30383d; border-radius: 2px; color: #8b1d25; background: repeating-linear-gradient(90deg, #1d252a 0 25px, #11181c 25px 29px); box-shadow: 0 7px 10px rgba(0, 0, 0, .22); font-size: 11px; font-weight: 900; letter-spacing: .08em; }
@@ -234,6 +250,7 @@ tbody tr:hover { background: rgba(94, 168, 255, .035); }
 .desk.lower .desk-device { grid-row: 2; align-self: stretch; }
 .desk.lower .desk-equipment { grid-row: 3; }
 .desk:hover { z-index: 2; border-color: #0f9f89; box-shadow: 0 0 0 3px rgba(15, 159, 137, .2), 0 8px 15px rgba(35, 43, 47, .28); filter: brightness(1.04); }
+.desk.selected { z-index: 3; border-color: #0b8f7d; box-shadow: 0 0 0 4px rgba(45, 212, 191, .44), 0 10px 18px rgba(23, 78, 74, .28); filter: brightness(1.08); }
 .desk-equipment { position: relative; display: block; }
 .desk-monitor { position: absolute; left: 50%; top: 0; width: 34px; height: 17px; transform: translateX(-50%); border: 3px solid #24292c; border-radius: 2px; background: linear-gradient(145deg, #233944, #0c151a); box-shadow: inset 0 0 0 1px #64737a, 0 2px 2px rgba(0,0,0,.2); }
 .desk-monitor::after { content: ""; position: absolute; left: 50%; bottom: -5px; width: 12px; height: 4px; transform: translateX(-50%); border-radius: 0 0 2px 2px; background: #252c30; }
@@ -330,6 +347,8 @@ tbody tr:hover { background: rgba(94, 168, 255, .035); }
   .alert-actions { justify-content: flex-end; }
   .field-row { grid-template-columns: 1fr; }
   .panel-heading { padding: 1rem; }
+  .room-map-scroll { height: min(72vh, 640px); }
+  .map-help { font-size: 9px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

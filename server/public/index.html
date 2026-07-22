@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#07111f">
   <title>RustDesk Kiosk · Trung tâm hỗ trợ</title>
-  <link rel="stylesheet" href="style.css?v=p204-map-4">
+  <link rel="stylesheet" href="style.css?v=p204-map-5">
 </head>
 <body>
   <section id="login-view" class="auth-view">
@@ -89,7 +89,16 @@
           <div><p class="eyebrow">LIVE MAP</p><h2>Sơ đồ chuẩn phòng P204</h2><small class="map-note">Số ảnh = mã ghi trên sơ đồ · Mxx = số ghế chạy hình con rắn</small></div>
           <div class="map-legend"><span><i class="legend-dot online"></i>Online</span><span><i class="legend-dot offline"></i>Offline</span><span><i class="legend-dot pending"></i>Chờ key</span></div>
         </div>
-        <div class="room-map-scroll"><div id="desk-grid" class="room-plan" aria-label="Sơ đồ 36 chỗ ngồi phòng P204"></div></div>
+        <div id="map-canvas" class="room-map-scroll" tabindex="0" aria-label="Bản đồ tương tác phòng P204. Kéo để di chuyển, cuộn để thu phóng.">
+          <div class="map-controls" aria-label="Điều khiển bản đồ">
+            <button id="map-zoom-in" type="button" title="Phóng to" aria-label="Phóng to">+</button>
+            <button id="map-zoom-out" type="button" title="Thu nhỏ" aria-label="Thu nhỏ">−</button>
+            <button id="map-fit" class="map-fit-button" type="button" title="Vừa màn hình" aria-label="Vừa màn hình">⌖</button>
+            <output id="map-zoom-level" aria-live="polite">100%</output>
+          </div>
+          <div class="map-help">Kéo để di chuyển · Cuộn để zoom · Chọn bàn để xem máy</div>
+          <div id="desk-grid" class="room-plan" aria-label="Sơ đồ 36 chỗ ngồi phòng P204"></div>
+        </div>
       </section>
 
       <section id="tab-keys" class="tab-panel key-layout" hidden>
@@ -140,6 +149,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="app.js?v=p204-map-4"></script>
+  <script src="app.js?v=p204-map-5"></script>
 </body>
 </html>
