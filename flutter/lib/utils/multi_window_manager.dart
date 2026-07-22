@@ -396,7 +396,9 @@ class RustDeskMultiWindowManager {
         return MultiWindowCallResult(windowId, null);
       } else if (_inactiveWindows.contains(windowId)) {
         // Toggle ON
-        WindowController.fromWindowId(windowId).show();
+        final wc = WindowController.fromWindowId(windowId);
+        wc.show();
+        wc.focus();
         registerActiveWindow(windowId);
         return MultiWindowCallResult(windowId, null);
       }

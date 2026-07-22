@@ -108,6 +108,39 @@ fn make_tray() -> hbb_common::ResultType<()> {
         start_query_session_count(ipc_sender.clone());
     });
     
+fn dispatch_global_chat_trigger() {
+    #[cfg(windows)]
+    {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+        use winapi::um::winuser::{FindWindowW, SendMessageW, WM_COPYDATA, COPYDATASTRUCT};
+
+        let class_name: Vec<u16> = OsStr::new("FLUTTER_RUNNER_WIN32_WINDOW")
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let window_name: Vec<u16> = OsStr::new("RustDesk")
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+
+        unsafe {
+            let hwnd = FindWindowW(class_name.as_ptr(), window_name.as_ptr());
+            if !hwnd.is_null() {
+                let msg_bytes = "--open-global-chat\0".as_bytes();
+                let mut cds = COPYDATASTRUCT {
+                    dwData: 0,
+                    cbData: msg_bytes.len() as u32,
+                    lpData: msg_bytes.as_ptr() as *mut _,
+                };
+                SendMessageW(hwnd, WM_COPYDATA, 0, &mut cds as *mut _ as _);
+                return;
+            }
+        }
+    }
+    let _ = crate::run_me(vec!["--open-global-chat"]);
+}
+
     // [CUSTOM KIOSK MODE]
     // Register Global Hotkeys:
     // Primary: Ctrl + Shift + F12
@@ -135,7 +168,7 @@ fn make_tray() -> hbb_common::ResultType<()> {
                     while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
                         if msg.message == WM_HOTKEY && (msg.wParam == 1001 || msg.wParam == 1002) {
                             let _ = std::thread::spawn(|| {
-                                crate::run_me(vec!["--open-global-chat"]).ok();
+                                dispatch_global_chat_trigger();
                             });
                         }
                         TranslateMessage(&msg);
@@ -205,7 +238,7 @@ fn make_tray() -> hbb_common::ResultType<()> {
         if let Ok(event) = menu_channel.try_recv() {
             // [CUSTOM KIOSK MODE]
             if event.id == support_i.id() {
-                crate::run_me(vec!["--open-global-chat"]).ok();
+                dispatch_global_chat_trigger();
             }
             // [/CUSTOM KIOSK MODE]
             else if let Some(quit_i) = &quit_i {
