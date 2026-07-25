@@ -254,7 +254,7 @@
           <section class="bandwidth-accounting">
             <header>
               <div><p class="eyebrow">BANDWIDTH COST CONTROL</p><h3>Dữ liệu đã sử dụng</h3></div>
-              <small>TX ra Internet dùng để ước tính chi phí · số AWS Billing là quyết toán cuối</small>
+              <div class="collector-actions"><small id="bandwidth-collector-status">Đang kiểm tra bộ thu thập dữ liệu…</small><button id="force-bandwidth-sample" class="button ghost compact" type="button">Lấy mẫu ngay</button></div>
             </header>
             <div class="bandwidth-kpis">
               <article><span>Hôm nay</span><strong id="bandwidth-today">0 B</strong><small id="bandwidth-today-split">RX 0 · TX 0</small></article>
@@ -351,6 +351,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="app.js?v=p204-map-15"></script>
+  <script src="app.js?v=p204-map-16"></script>
 </body>
 </html>

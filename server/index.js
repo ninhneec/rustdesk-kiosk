@@ -98,7 +98,7 @@ function linuxNetworkTotals() {
       .find((columns) => columns[1] === '00000000');
     const primaryInterface = defaultRoute?.[0] || null;
     const lines = fs.readFileSync('/proc/net/dev', 'utf8').split('\n').slice(2);
-    return lines.reduce((total, line) => {
+    const totals = lines.reduce((total, line) => {
       const [namePart, countersPart] = line.trim().split(':');
       const interfaceName = namePart?.trim();
       if (!countersPart || interfaceName === 'lo') return total;
@@ -109,8 +109,9 @@ function linuxNetworkTotals() {
       total.tx_bytes += counters[8] || 0;
       return total;
     }, { rx_bytes: 0, tx_bytes: 0 });
+    return { ...totals, interface_name: primaryInterface };
   } catch (_error) {
-    return { rx_bytes: null, tx_bytes: null };
+    return { rx_bytes: null, tx_bytes: null, interface_name: null };
   }
 }
 
@@ -132,7 +133,7 @@ function cpuUsagePercent() {
   return totalDelta > 0 ? Math.max(0, Math.min(100, (1 - idleDelta / totalDelta) * 100)) : 0;
 }
 
-async function recordSystemMetric() {
+async function recordSystemMetric(force = false) {
   const disk = fs.statfsSync(path.parse(databasePath).root || '/');
   const network = linuxNetworkTotals();
   const memoryUsed = os.totalmem() - os.freemem();
@@ -145,7 +146,8 @@ async function recordSystemMetric() {
     'SELECT rx_bytes, tx_bytes, created_at FROM system_metrics ORDER BY id DESC LIMIT 1',
   );
   const lastMetricAt = lastMetric?.created_at ? new Date(`${lastMetric.created_at}Z`).getTime() : 0;
-  if (!lastMetricAt || Date.now() - lastMetricAt >= 5 * 60_000) {
+  let recorded = false;
+  if (force || !lastMetricAt || Date.now() - lastMetricAt >= 5 * 60_000) {
     await dbRun(
       `INSERT INTO system_metrics (cpu_percent, ram_percent, disk_percent, rx_bytes, tx_bytes)
        VALUES (?, ?, ?, ?, ?)`,
@@ -165,8 +167,9 @@ async function recordSystemMetric() {
          updated_at = CURRENT_TIMESTAMP`,
       [rxDelta, txDelta],
     );
+    recorded = true;
   }
-  return { disk, network, memoryUsed, diskTotal, diskUsed, cpuPercent, ramPercent, diskPercent };
+  return { disk, network, memoryUsed, diskTotal, diskUsed, cpuPercent, ramPercent, diskPercent, recorded };
 }
 
 async function addColumnIfMissing(table, column, definition) {
@@ -348,6 +351,7 @@ function auditAction(method, routePath) {
     [/POST \/api\/admin\/chat\/alerts\/[^/]+\/acknowledge$/, 'alert.acknowledge'],
     [/POST \/api\/admin\/settings\/keywords$/, 'settings.update_keywords'],
     [/POST \/api\/admin\/settings\/system$/, 'settings.update_system'],
+    [/POST \/api\/admin\/system\/health\/sample$/, 'system.force_metric_sample'],
   ];
   return rules.find(([pattern]) => pattern.test(route))?.[1] || 'api.mutation';
 }
@@ -1130,6 +1134,15 @@ app.get('/api/admin/system/health', requireAdmin, async (_req, res) => {
         quota_gb: bandwidthQuotaGb,
         overage_usd_per_gb: bandwidthOveragePrice,
         accounting_note: 'Interface counters; TX is outbound from VPS',
+        collector: {
+          supported: Number.isFinite(network.rx_bytes) && Number.isFinite(network.tx_bytes),
+          interface_name: network.interface_name,
+          samples: metricHistory.length,
+          last_sample_at: metricHistory.at(-1)?.created_at || null,
+          next_sample_at: metricHistory.at(-1)?.created_at
+            ? new Date(new Date(`${metricHistory.at(-1).created_at}Z`).getTime() + 5 * 60_000).toISOString()
+            : null,
+        },
       },
       backup: {
         cron_enabled: fs.existsSync('/etc/cron.d/rustdesk-kiosk-backup'),
@@ -1145,6 +1158,22 @@ app.get('/api/admin/system/health', requireAdmin, async (_req, res) => {
   } catch (error) {
     console.error('Could not build system health:', error);
     fail(res, 500, 'Không thể đọc trạng thái server');
+  }
+});
+
+app.post('/api/admin/system/health/sample', requireAdmin, requireSameOrigin, async (_req, res) => {
+  try {
+    const snapshot = await recordSystemMetric(true);
+    res.json({
+      recorded: snapshot.recorded,
+      rx_bytes: snapshot.network.rx_bytes,
+      tx_bytes: snapshot.network.tx_bytes,
+      interface_name: snapshot.network.interface_name,
+      sampled_at: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Could not force health sample:', error);
+    fail(res, 500, 'Không thể lấy mẫu hệ thống ngay lúc này');
   }
 });
 

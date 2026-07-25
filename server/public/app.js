@@ -261,6 +261,20 @@ function renderHealthHistory() {
 
 function renderBandwidthAccounting(health) {
   const daily = Array.isArray(health.bandwidth?.daily) ? health.bandwidth.daily : [];
+  const collector = health.bandwidth?.collector || {};
+  const collectorStatus = $('#bandwidth-collector-status');
+  if (!collector.supported) {
+    collectorStatus.textContent = 'Không đọc được network interface của VPS';
+    collectorStatus.className = 'collector-error';
+  } else if (collector.samples < 2) {
+    collectorStatus.textContent = `Đang tạo baseline trên ${collector.interface_name || 'interface chính'} · cần 2 mẫu để tính dung lượng`;
+    collectorStatus.className = 'collector-waiting';
+  } else {
+    const nextSample = serverDate(collector.next_sample_at);
+    const remaining = nextSample ? Math.max(0, Math.ceil((nextSample - Date.now()) / 1000)) : 0;
+    collectorStatus.textContent = `Đang thu thập trên ${collector.interface_name || 'interface chính'} · mẫu tiếp theo sau ${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')}`;
+    collectorStatus.className = 'collector-ok';
+  }
   const recent = daily.slice(-31);
   const today = daily.at(-1) || { rx_bytes: 0, tx_bytes: 0 };
   const week = daily.slice(-7).reduce((sum, day) => sum + Number(day.rx_bytes || 0) + Number(day.tx_bytes || 0), 0);
@@ -1420,6 +1434,21 @@ $('#device-group-form').addEventListener('submit', async (event) => {
 document.querySelectorAll('.tab-button').forEach((button) => button.addEventListener('click', () => switchTab(button.dataset.tab)));
 $('#refresh-logs-btn').addEventListener('click', () => fetchLogs());
 $('#refresh-health-btn').addEventListener('click', () => fetchHealth());
+$('#force-bandwidth-sample').addEventListener('click', async (event) => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  button.textContent = 'Đang lấy mẫu…';
+  try {
+    await api('/api/admin/system/health/sample', { method: 'POST', body: '{}' });
+    await fetchHealth();
+    notify('Đã chốt một mẫu băng thông mới');
+  } catch (error) {
+    notify(`Không thể lấy mẫu: ${error.message}`);
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Lấy mẫu ngay';
+  }
+});
 $('#log-action-filter').addEventListener('change', () => fetchLogs());
 let logSearchTimer;
 $('#log-search').addEventListener('input', () => {

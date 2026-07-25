@@ -1051,6 +1051,14 @@ tbody tr:nth-child(even) { background: rgba(255,255,255,.012); }
 .bandwidth-accounting > header { display: flex; align-items: end; justify-content: space-between; gap: 1rem; }
 .bandwidth-accounting h3 { margin: .2rem 0 0; color: #edf6f8; font-size: 1rem; }
 .bandwidth-accounting > header > small { max-width: 420px; color: var(--muted); font-size: .59rem; line-height: 1.5; text-align: right; }
+.bandwidth-accounting > header > small.collector-ok { color: #75d9c5; }
+.bandwidth-accounting > header > small.collector-waiting { color: #f4b75d; }
+.bandwidth-accounting > header > small.collector-error { color: #fb7185; }
+.collector-actions { display: flex; align-items: center; justify-content: flex-end; gap: .65rem; }
+.collector-actions small { max-width: 360px; color: var(--muted); font-size: .59rem; line-height: 1.5; text-align: right; }
+.collector-actions small.collector-ok { color: #75d9c5; }
+.collector-actions small.collector-waiting { color: #f4b75d; }
+.collector-actions small.collector-error { color: #fb7185; }
 .bandwidth-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border-block: 1px solid var(--line); }
 .bandwidth-kpis article { display: grid; gap: .3rem; min-width: 0; padding: .85rem; border-right: 1px solid var(--line); }
 .bandwidth-kpis article:last-child { border-right: 0; }
@@ -1160,5 +1168,7 @@ tbody tr:nth-child(even) { background: rgba(255,255,255,.012); }
   .settings-preset { grid-template-columns: 1fr; }
   .bandwidth-accounting > header { align-items: start; flex-direction: column; }
   .bandwidth-accounting > header > small { text-align: left; }
+  .collector-actions { align-items: flex-start; flex-direction: column; }
+  .collector-actions small { text-align: left; }
   .bandwidth-kpis { grid-template-columns: 1fr; }
 }

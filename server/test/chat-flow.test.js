@@ -497,4 +497,8 @@ test('admin-bound and self-destruct key chat flow', async () => {
   assert.equal(typeof health.host.cpu_percent, 'number');
   assert.equal(Array.isArray(health.bandwidth.daily), true);
   assert.equal(health.bandwidth.quota_gb, 100);
+  assert.equal(typeof health.bandwidth.collector.supported, 'boolean');
+  response = await adminRequest('/api/admin/system/health/sample', { method: 'POST', ...json({}) });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).recorded, true);
 });
