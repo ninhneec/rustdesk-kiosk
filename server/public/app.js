@@ -12,7 +12,7 @@ const mapView = {
   x: 0,
   y: 0,
   minScale: 0.22,
-  maxScale: 2.2,
+  maxScale: 1.8,
   initialized: false,
   rendered: false,
   dragging: false,
@@ -368,7 +368,7 @@ function applyMapView() {
   const grid = $('#desk-grid');
   if (!grid) return;
   clampMapView();
-  grid.style.transform = `translate3d(${mapView.x}px, ${mapView.y}px, 0) scale(${mapView.scale})`;
+  grid.style.transform = `translate(${mapView.x}px, ${mapView.y}px) scale(${mapView.scale})`;
   $('#map-zoom-level').value = `${Math.round(mapView.scale * 100)}%`;
 }
 
@@ -408,7 +408,7 @@ function setupMapInteractions() {
   $('#map-fit').addEventListener('click', fitMapView);
   canvas.addEventListener('wheel', (event) => {
     event.preventDefault();
-    zoomMap(mapView.scale * (event.deltaY < 0 ? 1.12 : 1 / 1.12), event.clientX, event.clientY);
+    zoomMap(mapView.scale * (event.deltaY < 0 ? 1.06 : 1 / 1.06), event.clientX, event.clientY);
   }, { passive: false });
   canvas.addEventListener('dblclick', (event) => {
     if (event.target.closest('.desk, .map-controls')) return;
