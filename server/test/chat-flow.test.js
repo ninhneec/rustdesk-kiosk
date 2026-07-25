@@ -11,7 +11,7 @@ process.env.DATABASE_PATH = path.join(tempDirectory, 'test.db');
 const adminPassword = 'integration-admin-password';
 const adminSalt = Buffer.from('integration-admin-salt');
 const adminHash = require('node:crypto').scryptSync(adminPassword, adminSalt, 32);
-process.env.ADMIN_PASSWORD_HASH = `scrypt$${adminSalt.toString('base64url')}$${adminHash.toString('base64url')}`;
+process.env.ADMIN_PASSWORD_HASH = `scrypt:${adminSalt.toString('base64url')}:${adminHash.toString('base64url')}`;
 process.env.CHAT_SESSION_SECRET = 'integration-session-secret';
 process.env.NODE_ENV = 'test';
 

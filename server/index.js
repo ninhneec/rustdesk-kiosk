@@ -210,7 +210,7 @@ function safeEqual(left, right) {
 }
 
 function verifyAdminPassword(password) {
-  const parts = adminPasswordHash.split('$');
+  const parts = adminPasswordHash.includes(':') ? adminPasswordHash.split(':') : adminPasswordHash.split('$');
   if (parts.length !== 3 || parts[0] !== 'scrypt') return false;
   try {
     const salt = Buffer.from(parts[1], 'base64url');

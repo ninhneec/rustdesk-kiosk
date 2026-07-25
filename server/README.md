@@ -12,7 +12,7 @@ Backend này độc lập hoàn toàn với `hbbs`/`hbbr`:
 ```bash
 cd server
 npm ci
-ADMIN_PASSWORD_HASH='scrypt$base64url-salt$base64url-hash' \
+ADMIN_PASSWORD_HASH='scrypt:base64url-salt:base64url-hash' \
 CHAT_SESSION_SECRET='a-separate-long-random-secret' \
 PORT=3000 npm start
 ```

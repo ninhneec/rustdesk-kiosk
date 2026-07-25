@@ -51,7 +51,7 @@ else
   echo "Giữ nguyên secret hiện có và đã loại bỏ ADMIN_TOKEN"
 fi
 
-if ! grep -q '^ADMIN_PASSWORD_HASH=' "${ENV_FILE}"; then
+if [ -n "${ADMIN_PASSWORD:-}" ] || ! grep -q '^ADMIN_PASSWORD_HASH=' "${ENV_FILE}"; then
   if [ -z "${ADMIN_PASSWORD:-}" ]; then
     if [ ! -t 0 ]; then
       echo "Thiếu mật khẩu. Chạy lại với: sudo ADMIN_PASSWORD='mat-khau-cua-ban' bash deploy_chat_only.sh"
@@ -70,9 +70,17 @@ if ! grep -q '^ADMIN_PASSWORD_HASH=' "${ENV_FILE}"; then
     echo "Mật khẩu quản trị phải có ít nhất 10 ký tự"
     exit 1
   fi
-  ADMIN_PASSWORD_HASH="$(ADMIN_PASSWORD="${ADMIN_PASSWORD}" node -e "const c=require('crypto');const s=c.randomBytes(16);const h=c.scryptSync(process.env.ADMIN_PASSWORD,s,32);process.stdout.write('scrypt$'+s.toString('base64url')+'$'+h.toString('base64url'))")"
+  ADMIN_PASSWORD_HASH="$(ADMIN_PASSWORD="${ADMIN_PASSWORD}" node -e "const c=require('crypto');const s=c.randomBytes(16);const h=c.scryptSync(process.env.ADMIN_PASSWORD,s,32);process.stdout.write(['scrypt',s.toString('base64url'),h.toString('base64url')].join(':'))")"
+  sed -i '/^ADMIN_PASSWORD_HASH=/d' "${ENV_FILE}"
   printf 'ADMIN_PASSWORD_HASH=%s\n' "${ADMIN_PASSWORD_HASH}" >> "${ENV_FILE}"
   unset ADMIN_PASSWORD ADMIN_PASSWORD_CONFIRM ADMIN_PASSWORD_HASH
+else
+  STORED_PASSWORD_HASH="$(sed -n 's/^ADMIN_PASSWORD_HASH=//p' "${ENV_FILE}")"
+  if [[ "${STORED_PASSWORD_HASH}" == scrypt\$*\$* ]]; then
+    NORMALIZED_PASSWORD_HASH="${STORED_PASSWORD_HASH//\$/\:}"
+    sed -i '/^ADMIN_PASSWORD_HASH=/d' "${ENV_FILE}"
+    printf 'ADMIN_PASSWORD_HASH=%s\n' "${NORMALIZED_PASSWORD_HASH}" >> "${ENV_FILE}"
+  fi
 fi
 
 echo "[4/5] Cài dependency và khởi động bằng PM2"
