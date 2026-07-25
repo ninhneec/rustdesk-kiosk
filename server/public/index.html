@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07111f">
   <title>RustDesk Kiosk · Trung tâm hỗ trợ</title>
   <meta name="description" content="Bảng điều phối thiết bị và hỗ trợ RustDesk Kiosk P204">
-  <link rel="stylesheet" href="style.css?v=ops-dashboard-6">
+  <link rel="stylesheet" href="style.css?v=ops-dashboard-7">
 </head>
 <body>
   <section id="login-view" class="auth-view">
@@ -243,7 +243,7 @@
               <article id="gauge-disk" class="health-gauge"><div><strong>0%</strong></div><span>Ổ đĩa</span><small>Đang đo</small></article>
             </section>
             <section class="health-history">
-              <header><div><h3>Xu hướng tài nguyên</h3><small>40 lần đo gần nhất</small></div><strong id="network-rate">Đang đo băng thông…</strong></header>
+              <header><div><h3>Xu hướng tài nguyên</h3><small id="health-sample-time">Đang tải lịch sử…</small></div><strong id="network-rate">Đang đo băng thông…</strong></header>
               <svg id="health-history-chart" role="img" aria-label="Biểu đồ CPU, RAM và ổ đĩa"></svg>
               <div class="chart-legend"><span class="cpu">CPU</span><span class="ram">RAM</span><span class="disk">Ổ đĩa</span></div>
               <div class="bandwidth-heading"><strong>Băng thông realtime</strong><small>Tự co giãn theo lưu lượng thực tế</small></div>
@@ -307,6 +307,10 @@
             <label>Máy được tính online trong (phút)<input id="online-threshold-minutes" type="number" min="1" max="30"></label>
             <label>Refresh server health (giây)<input id="health-refresh-seconds" type="number" min="5" max="120"></label>
             <label>Giữ audit log (ngày)<input id="audit-retention-days" type="number" min="7" max="365"></label>
+            <label>Dữ liệu tạm tự xóa sau
+              <select id="transient-retention-days"><option value="2">2 ngày</option><option value="3">3 ngày · khuyên dùng</option></select>
+              <small>Chỉ xóa mẫu biểu đồ và cảnh báo đã xử lý.</small>
+            </label>
             </fieldset>
             <button class="button primary wide" type="submit">Lưu cấu hình</button>
             <span id="system-settings-message" class="form-message"></span>
@@ -327,6 +331,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="app.js?v=p204-map-13"></script>
+  <script src="app.js?v=p204-map-14"></script>
 </body>
 </html>

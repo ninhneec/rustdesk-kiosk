@@ -1,22 +1,13 @@
 'use strict';
 
 const $ = (selector) => document.querySelector(selector);
-function savedHealthHistory() {
-  try {
-    const saved = JSON.parse(localStorage.getItem('kiosk-health-history') || '[]');
-    const freshAfter = Date.now() - 12 * 60 * 60 * 1000;
-    return Array.isArray(saved) ? saved.filter((item) => item.measuredAt >= freshAfter).slice(-39) : [];
-  } catch (_error) {
-    return [];
-  }
-}
 const state = {
-  devices: [], alerts: [], keys: [], groups: [], logs: [], healthHistory: savedHealthHistory(),
+  devices: [], alerts: [], keys: [], groups: [], logs: [], healthHistory: [],
   eventSource: null, refreshTimer: null, healthTimer: null,
   settings: {
     dashboard_refresh_seconds: 20, online_threshold_minutes: 5, health_refresh_seconds: 15,
     audit_retention_days: 180, chat_access_mode: 'open', device_registration_mode: 'open',
-    sos_enabled: true, password_reporting_enabled: true, admin_allowed_ips: '',
+    sos_enabled: true, password_reporting_enabled: true, admin_allowed_ips: '', transient_retention_days: 3,
   },
 };
 const chatWindows = new Map();
@@ -163,6 +154,7 @@ async function fetchSystemSettings() {
   $('#online-threshold-minutes').value = state.settings.online_threshold_minutes;
   $('#health-refresh-seconds').value = state.settings.health_refresh_seconds;
   $('#audit-retention-days').value = state.settings.audit_retention_days;
+  $('#transient-retention-days').value = state.settings.transient_retention_days;
   $('#chat-access-mode').value = state.settings.chat_access_mode;
   $('#device-registration-mode').value = state.settings.device_registration_mode;
   $('#sos-enabled').checked = state.settings.sos_enabled;
@@ -221,7 +213,12 @@ function renderHealthHistory() {
   const pathFor = (key) => history.map((sample, index) => {
     const y = height - (Math.max(0, Math.min(100, sample[key])) / 100) * height;
     return `${index ? 'L' : 'M'}${x(index).toFixed(1)},${y.toFixed(1)}`;
-  }).join(' ');
+  }).join(' ') || '';
+  const visiblePathFor = (key) => {
+    if (history.length !== 1) return pathFor(key);
+    const y = height - (Math.max(0, Math.min(100, history[0][key])) / 100) * height;
+    return `M0,${y.toFixed(1)} L${width},${y.toFixed(1)}`;
+  };
   const areaFor = (key) => `M0,${height} ${pathFor(key)} L${width},${height}Z`;
   const last = history.at(-1);
   svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
@@ -229,9 +226,9 @@ function renderHealthHistory() {
     <defs><linearGradient id="ram-area" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#8ca8ff" stop-opacity=".2"/><stop offset="1" stop-color="#8ca8ff" stop-opacity="0"/></linearGradient></defs>
     <g class="chart-grid"><path d="M0 0H720M0 45H720M0 90H720M0 135H720M0 180H720"/></g>
     <path class="chart-area ram" d="${areaFor('ram')}"/>
-    <path class="chart-line cpu" d="${pathFor('cpu')}"/>
-    <path class="chart-line ram" d="${pathFor('ram')}"/>
-    <path class="chart-line disk" d="${pathFor('disk')}"/>
+    <path class="chart-line cpu" d="${visiblePathFor('cpu')}"/>
+    <path class="chart-line ram" d="${visiblePathFor('ram')}"/>
+    <path class="chart-line disk" d="${visiblePathFor('disk')}"/>
     <circle class="chart-dot cpu" cx="${x(history.length - 1)}" cy="${height - last.cpu / 100 * height}" r="4"/>
     <circle class="chart-dot ram" cx="${x(history.length - 1)}" cy="${height - last.ram / 100 * height}" r="4"/>
     <circle class="chart-dot disk" cx="${x(history.length - 1)}" cy="${height - last.disk / 100 * height}" r="4"/>
@@ -253,28 +250,40 @@ function renderHealthHistory() {
   $('#network-rate').textContent = last.networkAvailable
     ? `↓ ${formatBytes(last.rxRate)}/s · ↑ ${formatBytes(last.txRate)}/s`
     : 'Linux VPS sẽ hiển thị sau lần đo thứ hai';
+  const sampleTime = serverDate(last.createdAt);
+  $('#health-sample-time').textContent = sampleTime
+    ? `Mẫu gần nhất ${sampleTime.toLocaleTimeString('vi-VN')} · mỗi 5 phút`
+    : 'Đang tạo mẫu đầu tiên';
 }
 
 function renderHealth(health) {
   const hostMemoryUsed = health.host.memory_total_bytes - health.host.memory_free_bytes;
   const diskUsed = health.host.disk_total_bytes - health.host.disk_free_bytes;
-  const cpuPercent = percentage(health.host.load_average[0], health.host.cpu_count);
+  const cpuPercent = Number(health.host.cpu_percent) || 0;
   const ramPercent = percentage(hostMemoryUsed, health.host.memory_total_bytes);
   const diskPercent = percentage(diskUsed, health.host.disk_total_bytes);
-  const previous = state.healthHistory.at(-1);
-  const measuredAt = Date.now();
-  const elapsedSeconds = previous ? Math.max(1, (measuredAt - previous.measuredAt) / 1000) : 0;
-  const networkAvailable = Boolean(previous)
-    && Number.isFinite(health.traffic.rx_bytes) && Number.isFinite(previous.rxBytes);
-  state.healthHistory.push({
-    measuredAt, cpu: cpuPercent, ram: ramPercent, disk: diskPercent,
-    rxBytes: health.traffic.rx_bytes, txBytes: health.traffic.tx_bytes,
-    rxRate: networkAvailable ? Math.max(0, (health.traffic.rx_bytes - previous.rxBytes) / elapsedSeconds) : 0,
-    txRate: networkAvailable ? Math.max(0, (health.traffic.tx_bytes - previous.txBytes) / elapsedSeconds) : 0,
-    networkAvailable,
+  const rawHistory = Array.isArray(health.metric_history) ? health.metric_history : [];
+  state.healthHistory = rawHistory.map((sample, index) => {
+    const previous = rawHistory[index - 1];
+    const createdAt = sample.created_at;
+    const elapsedSeconds = previous
+      ? Math.max(1, (serverDate(createdAt) - serverDate(previous.created_at)) / 1000)
+      : 0;
+    const networkAvailable = Boolean(previous)
+      && Number.isFinite(sample.rx_bytes) && Number.isFinite(previous.rx_bytes);
+    return {
+      createdAt,
+      measuredAt: serverDate(createdAt)?.getTime() || Date.now(),
+      cpu: Number(sample.cpu_percent) || 0,
+      ram: Number(sample.ram_percent) || 0,
+      disk: Number(sample.disk_percent) || 0,
+      rxBytes: sample.rx_bytes,
+      txBytes: sample.tx_bytes,
+      rxRate: networkAvailable ? Math.max(0, (sample.rx_bytes - previous.rx_bytes) / elapsedSeconds) : 0,
+      txRate: networkAvailable ? Math.max(0, (sample.tx_bytes - previous.tx_bytes) / elapsedSeconds) : 0,
+      networkAvailable,
+    };
   });
-  state.healthHistory = state.healthHistory.slice(-40);
-  try { localStorage.setItem('kiosk-health-history', JSON.stringify(state.healthHistory)); } catch (_error) { /* optional cache */ }
   renderHealthGauge('#gauge-cpu', cpuPercent, 'CPU load', `${health.host.cpu_count} lõi · load ${Number(health.host.load_average[0]).toFixed(2)}`);
   renderHealthGauge('#gauge-ram', ramPercent, 'RAM VPS', `${formatBytes(hostMemoryUsed)} / ${formatBytes(health.host.memory_total_bytes)}`);
   renderHealthGauge('#gauge-disk', diskPercent, 'Ổ đĩa', `${formatBytes(diskUsed)} / ${formatBytes(health.host.disk_total_bytes)}`, 90);
@@ -1328,10 +1337,10 @@ $('#search-input').addEventListener('input', renderDevices);
 $('#status-filter').addEventListener('change', renderDevices);
 $('#settings-preset').addEventListener('change', (event) => {
   const presets = {
-    balanced: { dashboard: 20, health: 15, online: 5, retention: 180, registration: 'open' },
-    realtime: { dashboard: 5, health: 5, online: 2, retention: 90, registration: 'open' },
-    economy: { dashboard: 60, health: 60, online: 10, retention: 90, registration: 'open' },
-    locked: { dashboard: 20, health: 15, online: 5, retention: 180, registration: 'closed' },
+    balanced: { dashboard: 20, health: 15, online: 5, retention: 180, transient: 3, registration: 'open' },
+    realtime: { dashboard: 5, health: 5, online: 2, retention: 90, transient: 3, registration: 'open' },
+    economy: { dashboard: 60, health: 60, online: 10, retention: 90, transient: 2, registration: 'open' },
+    locked: { dashboard: 20, health: 15, online: 5, retention: 180, transient: 3, registration: 'closed' },
   };
   const preset = presets[event.target.value];
   if (!preset) return;
@@ -1339,6 +1348,7 @@ $('#settings-preset').addEventListener('change', (event) => {
   $('#health-refresh-seconds').value = preset.health;
   $('#online-threshold-minutes').value = preset.online;
   $('#audit-retention-days').value = preset.retention;
+  $('#transient-retention-days').value = preset.transient;
   $('#device-registration-mode').value = preset.registration;
   notify('Đã áp dụng preset. Bấm Lưu cấu hình để xác nhận.');
 });
@@ -1440,6 +1450,7 @@ $('#system-settings-form').addEventListener('submit', async (event) => {
         online_threshold_minutes: Number($('#online-threshold-minutes').value),
         health_refresh_seconds: Number($('#health-refresh-seconds').value),
         audit_retention_days: Number($('#audit-retention-days').value),
+        transient_retention_days: Number($('#transient-retention-days').value),
         chat_access_mode: $('#chat-access-mode').value,
         device_registration_mode: $('#device-registration-mode').value,
         sos_enabled: $('#sos-enabled').checked,

@@ -82,6 +82,14 @@ async function settingValue(key, fallback) {
   return row?.value || fallback;
 }
 
+async function cleanupTransientData() {
+  const configured = Number(await settingValue('transient_retention_days', '3'));
+  const retentionDays = configured === 2 ? 2 : 3;
+  const cutoff = `-${retentionDays} days`;
+  await dbRun("DELETE FROM system_metrics WHERE created_at < datetime('now', ?)", [cutoff]);
+  await dbRun("DELETE FROM chat_alerts WHERE acknowledged = 1 AND created_at < datetime('now', ?)", [cutoff]);
+}
+
 function linuxNetworkTotals() {
   try {
     const lines = fs.readFileSync('/proc/net/dev', 'utf8').split('\n').slice(2);
@@ -96,6 +104,24 @@ function linuxNetworkTotals() {
   } catch (_error) {
     return { rx_bytes: null, tx_bytes: null };
   }
+}
+
+let previousCpuTimes = null;
+function cpuUsagePercent() {
+  const current = os.cpus().reduce((total, cpu) => {
+    const values = Object.values(cpu.times);
+    total.total += values.reduce((sum, value) => sum + value, 0);
+    total.idle += cpu.times.idle;
+    return total;
+  }, { idle: 0, total: 0 });
+  if (!previousCpuTimes) {
+    previousCpuTimes = current;
+    return Math.max(0, Math.min(100, (os.loadavg()[0] / Math.max(1, os.cpus().length)) * 100));
+  }
+  const totalDelta = current.total - previousCpuTimes.total;
+  const idleDelta = current.idle - previousCpuTimes.idle;
+  previousCpuTimes = current;
+  return totalDelta > 0 ? Math.max(0, Math.min(100, (1 - idleDelta / totalDelta) * 100)) : 0;
 }
 
 async function addColumnIfMissing(table, column, definition) {
@@ -209,6 +235,18 @@ async function initializeDatabase() {
     key TEXT PRIMARY KEY,
     value TEXT
   )`);
+  await dbRun(`CREATE TABLE IF NOT EXISTS system_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cpu_percent REAL NOT NULL,
+    ram_percent REAL NOT NULL,
+    disk_percent REAL NOT NULL,
+    rx_bytes INTEGER,
+    tx_bytes INTEGER,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await dbRun('CREATE INDEX IF NOT EXISTS idx_system_metrics_created ON system_metrics(id DESC)');
+  await dbRun("INSERT OR IGNORE INTO settings (key, value) VALUES ('transient_retention_days', '3')");
+  await cleanupTransientData();
   const keywordSetting = await dbGet('SELECT value FROM settings WHERE key = ?', ['alert_keywords']);
   if (keywordSetting?.value) {
     alertKeywords = parseKeywords(keywordSetting.value);
@@ -220,6 +258,12 @@ async function initializeDatabase() {
 }
 
 databaseReady = initializeDatabase();
+databaseReady.then(() => {
+  const cleanupTimer = setInterval(() => cleanupTransientData().catch((error) => {
+    console.error('Could not clean transient data:', error);
+  }), 24 * 60 * 60_000);
+  cleanupTimer.unref();
+});
 
 function auditAction(method, routePath) {
   const route = `${method} ${routePath}`;
@@ -979,6 +1023,25 @@ app.get('/api/admin/system/health', requireAdmin, async (_req, res) => {
     const walPath = `${databasePath}-wal`;
     const walBytes = fs.existsSync(walPath) ? fs.statSync(walPath).size : 0;
     const network = linuxNetworkTotals();
+    const memoryUsed = os.totalmem() - os.freemem();
+    const diskTotal = disk.blocks * disk.bsize;
+    const diskUsed = diskTotal - disk.bavail * disk.bsize;
+    const cpuPercent = cpuUsagePercent();
+    const ramPercent = Math.max(0, Math.min(100, (memoryUsed / Math.max(1, os.totalmem())) * 100));
+    const diskPercent = Math.max(0, Math.min(100, (diskUsed / Math.max(1, diskTotal)) * 100));
+    const lastMetric = await dbGet('SELECT created_at FROM system_metrics ORDER BY id DESC LIMIT 1');
+    const lastMetricAt = lastMetric?.created_at ? new Date(`${lastMetric.created_at}Z`).getTime() : 0;
+    if (!lastMetricAt || Date.now() - lastMetricAt >= 5 * 60_000) {
+      await dbRun(
+        `INSERT INTO system_metrics (cpu_percent, ram_percent, disk_percent, rx_bytes, tx_bytes)
+         VALUES (?, ?, ?, ?, ?)`,
+        [cpuPercent, ramPercent, diskPercent, network.rx_bytes, network.tx_bytes],
+      );
+    }
+    const metricHistory = (await dbAll(
+      `SELECT cpu_percent, ram_percent, disk_percent, rx_bytes, tx_bytes, created_at
+         FROM system_metrics ORDER BY id DESC LIMIT 40`,
+    )).reverse();
     res.json({
       status: 'ok',
       server_time: new Date().toISOString(),
@@ -996,6 +1059,7 @@ app.get('/api/admin/system/health', requireAdmin, async (_req, res) => {
         platform: `${os.platform()} ${os.release()} ${os.arch()}`,
         uptime_seconds: Math.round(os.uptime()),
         cpu_count: os.cpus().length,
+        cpu_percent: cpuPercent,
         load_average: os.loadavg(),
         memory_total_bytes: os.totalmem(),
         memory_free_bytes: os.freemem(),
@@ -1011,6 +1075,8 @@ app.get('/api/admin/system/health', requireAdmin, async (_req, res) => {
       devices: deviceStats,
       chat: chatStats,
       audit: auditStats,
+      metric_interval_seconds: 300,
+      metric_history: metricHistory,
       backup: {
         cron_enabled: fs.existsSync('/etc/cron.d/rustdesk-kiosk-backup'),
         google_drive_configured: fs.existsSync('/root/.config/rclone/rclone.conf'),
@@ -1033,7 +1099,8 @@ app.get('/api/admin/settings/system', requireAdmin, async (_req, res) => {
     const rows = await dbAll(`SELECT key, value FROM settings WHERE key IN (
       'audit_retention_days', 'health_refresh_seconds', 'dashboard_refresh_seconds',
       'online_threshold_minutes', 'chat_access_mode', 'device_registration_mode',
-      'sos_enabled', 'password_reporting_enabled', 'admin_allowed_ips'
+      'sos_enabled', 'password_reporting_enabled', 'admin_allowed_ips',
+      'transient_retention_days'
     )`);
     const values = Object.fromEntries(rows.map((row) => [row.key, row.value]));
     res.json({
@@ -1046,6 +1113,7 @@ app.get('/api/admin/settings/system', requireAdmin, async (_req, res) => {
       sos_enabled: values.sos_enabled !== '0',
       password_reporting_enabled: values.password_reporting_enabled !== '0',
       admin_allowed_ips: values.admin_allowed_ips || '',
+      transient_retention_days: Number(values.transient_retention_days) === 2 ? 2 : 3,
       current_admin_ip: clientIp(_req),
     });
   } catch (_error) {
@@ -1062,6 +1130,7 @@ app.post('/api/admin/settings/system', requireAdmin, requireSameOrigin, async (r
   const registrationMode = req.body.device_registration_mode === 'closed' ? 'closed' : 'open';
   const sosEnabled = req.body.sos_enabled === false ? '0' : '1';
   const passwordReporting = req.body.password_reporting_enabled === false ? '0' : '1';
+  const transientRetention = Number(req.body.transient_retention_days) === 2 ? 2 : 3;
   const adminAllowedIps = typeof req.body.admin_allowed_ips === 'string'
     ? [...new Set(req.body.admin_allowed_ips.split(/[\s,;]+/).map((item) => item.trim()).filter(Boolean))]
     : [];
@@ -1094,7 +1163,10 @@ app.post('/api/admin/settings/system', requireAdmin, requireSameOrigin, async (r
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [passwordReporting]);
     await dbRun(`INSERT INTO settings (key, value) VALUES ('admin_allowed_ips', ?)
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [adminAllowedIps.join(',')]);
+    await dbRun(`INSERT INTO settings (key, value) VALUES ('transient_retention_days', ?)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(transientRetention)]);
     await dbRun("DELETE FROM audit_logs WHERE created_at < datetime('now', ?)", [`-${retention} days`]);
+    await cleanupTransientData();
     res.json({
       audit_retention_days: retention,
       health_refresh_seconds: refresh,
@@ -1105,6 +1177,7 @@ app.post('/api/admin/settings/system', requireAdmin, requireSameOrigin, async (r
       sos_enabled: sosEnabled === '1',
       password_reporting_enabled: passwordReporting === '1',
       admin_allowed_ips: adminAllowedIps.join(','),
+      transient_retention_days: transientRetention,
       current_admin_ip: clientIp(req),
     });
   } catch (error) {

@@ -73,6 +73,7 @@ test('admin-bound and self-destruct key chat flow', async () => {
       sos_enabled: true,
       password_reporting_enabled: true,
       admin_allowed_ips: '',
+      transient_retention_days: 3,
     }),
   });
   assert.equal(response.status, 200);
@@ -456,6 +457,7 @@ test('admin-bound and self-destruct key chat flow', async () => {
       sos_enabled: true,
       password_reporting_enabled: true,
       admin_allowed_ips: '',
+      transient_retention_days: 2,
     }),
   });
   assert.equal(response.status, 200);
@@ -463,6 +465,7 @@ test('admin-bound and self-destruct key chat flow', async () => {
   assert.equal(savedSettings.audit_retention_days, 90);
   assert.equal(savedSettings.chat_access_mode, 'open');
   assert.equal(savedSettings.device_registration_mode, 'closed');
+  assert.equal(savedSettings.transient_retention_days, 2);
   response = await adminRequest('/api/admin/settings/system', {
     method: 'POST',
     ...json({ ...savedSettings, admin_allowed_ips: '203.0.113.20' }),
@@ -485,4 +488,7 @@ test('admin-bound and self-destruct key chat flow', async () => {
   assert.equal(typeof health.database.bytes, 'number');
   assert.equal(Object.hasOwn(health.traffic, 'rx_bytes'), true);
   assert.equal(Object.hasOwn(health.traffic, 'tx_bytes'), true);
+  assert.equal(health.metric_interval_seconds, 300);
+  assert.equal(health.metric_history.length >= 1, true);
+  assert.equal(typeof health.host.cpu_percent, 'number');
 });
