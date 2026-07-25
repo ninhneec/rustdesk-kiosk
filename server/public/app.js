@@ -2,8 +2,13 @@
 
 const $ = (selector) => document.querySelector(selector);
 const state = {
-  devices: [], alerts: [], keys: [], logs: [], eventSource: null, refreshTimer: null, healthTimer: null,
-  settings: { dashboard_refresh_seconds: 20, online_threshold_minutes: 5, health_refresh_seconds: 15, audit_retention_days: 180 },
+  devices: [], alerts: [], keys: [], groups: [], logs: [], healthHistory: [],
+  eventSource: null, refreshTimer: null, healthTimer: null,
+  settings: {
+    dashboard_refresh_seconds: 20, online_threshold_minutes: 5, health_refresh_seconds: 15,
+    audit_retention_days: 180, chat_access_mode: 'open', device_registration_mode: 'open',
+    sos_enabled: true, password_reporting_enabled: true, admin_allowed_ips: '',
+  },
 };
 const chatWindows = new Map();
 const loginView = $('#login-view');
@@ -87,7 +92,8 @@ function isOnline(device) {
 }
 
 function isActive(device) {
-  return Boolean(device.access_key_id && Number(device.key_active) === 1);
+  return state.settings.chat_access_mode === 'open'
+    || Boolean(device.access_key_id && Number(device.key_active) === 1);
 }
 
 function seatValues(select, selected = '', currentDeviceId = '') {
@@ -99,6 +105,14 @@ function seatValues(select, selected = '', currentDeviceId = '') {
     option.disabled = Boolean(occupant);
     select.add(option);
   }
+}
+
+function seatDescription(seatId) {
+  const number = Number.parseInt(String(seatId || '').replace(/\D/g, ''), 10);
+  if (!number || number > 36) return 'Chưa gán vị trí';
+  const row = number <= 9 ? 1 : number <= 18 ? 2 : number <= 27 ? 3 : 4;
+  const position = row % 2 === 1 ? number - ((row - 1) * 9) : (row * 9) - number + 1;
+  return `Dãy ${row} · vị trí ${position}/9`;
 }
 
 async function fetchDevices() {
@@ -123,6 +137,12 @@ async function fetchKeys() {
   renderKeys();
 }
 
+async function fetchGroups() {
+  state.groups = await api('/api/admin/device-groups');
+  renderGroups();
+  renderDevices();
+}
+
 async function fetchKeywords() {
   const result = await api('/api/admin/settings/keywords');
   $('#keywords-input').value = result.keywords || '';
@@ -134,6 +154,12 @@ async function fetchSystemSettings() {
   $('#online-threshold-minutes').value = state.settings.online_threshold_minutes;
   $('#health-refresh-seconds').value = state.settings.health_refresh_seconds;
   $('#audit-retention-days').value = state.settings.audit_retention_days;
+  $('#chat-access-mode').value = state.settings.chat_access_mode;
+  $('#device-registration-mode').value = state.settings.device_registration_mode;
+  $('#sos-enabled').checked = state.settings.sos_enabled;
+  $('#password-reporting-enabled').checked = state.settings.password_reporting_enabled;
+  $('#admin-allowed-ips').value = state.settings.admin_allowed_ips || '';
+  $('#current-admin-ip').textContent = state.settings.current_admin_ip || '—';
 }
 
 function formatBytes(value) {
@@ -161,9 +187,67 @@ function fillHealthDetails(selector, entries) {
   });
 }
 
+function percentage(value, total) {
+  return total > 0 ? Math.max(0, Math.min(100, (value / total) * 100)) : 0;
+}
+
+function renderHealthGauge(selector, value, label, detail, warnAt = 85) {
+  const gauge = $(selector);
+  const safeValue = Math.round(Math.max(0, Math.min(100, value || 0)));
+  gauge.style.setProperty('--gauge-value', safeValue);
+  gauge.classList.toggle('warning', safeValue >= warnAt);
+  gauge.querySelector('strong').textContent = `${safeValue}%`;
+  gauge.querySelector('span').textContent = label;
+  gauge.querySelector('small').textContent = detail;
+}
+
+function renderHealthHistory() {
+  const svg = $('#health-history-chart');
+  const history = state.healthHistory;
+  if (!history.length) return;
+  const width = 720;
+  const height = 180;
+  const x = (index) => history.length === 1 ? width : (index / (history.length - 1)) * width;
+  const pathFor = (key) => history.map((sample, index) => {
+    const y = height - (Math.max(0, Math.min(100, sample[key])) / 100) * height;
+    return `${index ? 'L' : 'M'}${x(index).toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  svg.innerHTML = `
+    <g class="chart-grid"><path d="M0 45H720M0 90H720M0 135H720"/></g>
+    <path class="chart-line cpu" d="${pathFor('cpu')}"/>
+    <path class="chart-line ram" d="${pathFor('ram')}"/>
+    <path class="chart-line disk" d="${pathFor('disk')}"/>
+  `;
+  const latest = history.at(-1);
+  $('#network-rate').textContent = latest.networkAvailable
+    ? `↓ ${formatBytes(latest.rxRate)}/s · ↑ ${formatBytes(latest.txRate)}/s`
+    : 'Linux VPS sẽ hiển thị sau lần đo thứ hai';
+}
+
 function renderHealth(health) {
   const hostMemoryUsed = health.host.memory_total_bytes - health.host.memory_free_bytes;
   const diskUsed = health.host.disk_total_bytes - health.host.disk_free_bytes;
+  const cpuPercent = percentage(health.host.load_average[0], health.host.cpu_count);
+  const ramPercent = percentage(hostMemoryUsed, health.host.memory_total_bytes);
+  const diskPercent = percentage(diskUsed, health.host.disk_total_bytes);
+  const previous = state.healthHistory.at(-1);
+  const measuredAt = Date.now();
+  const elapsedSeconds = previous ? Math.max(1, (measuredAt - previous.measuredAt) / 1000) : 0;
+  const networkAvailable = Boolean(previous)
+    && Number.isFinite(health.traffic.rx_bytes) && Number.isFinite(previous.rxBytes);
+  state.healthHistory.push({
+    measuredAt, cpu: cpuPercent, ram: ramPercent, disk: diskPercent,
+    rxBytes: health.traffic.rx_bytes, txBytes: health.traffic.tx_bytes,
+    rxRate: networkAvailable ? Math.max(0, (health.traffic.rx_bytes - previous.rxBytes) / elapsedSeconds) : 0,
+    txRate: networkAvailable ? Math.max(0, (health.traffic.tx_bytes - previous.txBytes) / elapsedSeconds) : 0,
+    networkAvailable,
+  });
+  state.healthHistory = state.healthHistory.slice(-40);
+  renderHealthGauge('#gauge-cpu', cpuPercent, 'CPU load', `${health.host.cpu_count} lõi · load ${Number(health.host.load_average[0]).toFixed(2)}`);
+  renderHealthGauge('#gauge-ram', ramPercent, 'RAM VPS', `${formatBytes(hostMemoryUsed)} / ${formatBytes(health.host.memory_total_bytes)}`);
+  renderHealthGauge('#gauge-disk', diskPercent, 'Ổ đĩa', `${formatBytes(diskUsed)} / ${formatBytes(health.host.disk_total_bytes)}`, 90);
+  renderHealthHistory();
   const cards = [
     ['API', health.status === 'ok' ? 'Hoạt động' : 'Có lỗi', health.status === 'ok'],
     ['Thiết bị online', `${health.devices.online || 0}/${health.devices.total || 0}`, true],
@@ -234,7 +318,7 @@ async function fetchLogs() {
 async function refreshAll({ quiet = false } = {}) {
   clearTimeout(state.refreshTimer);
   try {
-    await Promise.all([fetchDevices(), fetchAlerts(), fetchKeys()]);
+    await Promise.all([fetchDevices(), fetchAlerts(), fetchKeys(), fetchGroups()]);
     if (!quiet) notify('Dữ liệu đã được cập nhật');
   } catch (error) {
     console.error(error);
@@ -266,6 +350,23 @@ function renderDevices() {
       || (statusFilter === 'forced' && Number(device.key_entry_required) === 1)
       || (statusFilter === 'active' && isActive(device));
     return searchable.includes(query) && matchesStatus;
+  });
+  const sortMode = $('#device-sort')?.value || 'seat';
+  devices.sort((left, right) => {
+    if (sortMode === 'online') {
+      const difference = Number(isOnline(right)) - Number(isOnline(left));
+      if (difference) return difference;
+    } else if (sortMode === 'updated') {
+      const difference = (serverDate(right.last_seen)?.getTime() || 0) - (serverDate(left.last_seen)?.getTime() || 0);
+      if (difference) return difference;
+    } else if (sortMode === 'hostname') {
+      const difference = (left.hostname || left.id).localeCompare(right.hostname || right.id, 'vi');
+      if (difference) return difference;
+    } else {
+      const difference = (left.seat_id || 'ZZZ').localeCompare(right.seat_id || 'ZZZ', 'vi', { numeric: true });
+      if (difference) return difference;
+    }
+    return (left.hostname || left.id).localeCompare(right.hostname || right.id, 'vi');
   });
   if (!devices.length) {
     const row = element('tr');
@@ -299,6 +400,18 @@ function renderDevices() {
     const machine = element('div', 'device-name');
     machine.append(element('strong', '', device.hostname || 'Máy chưa đặt tên'));
     machine.append(element('small', '', active ? (device.key_label || 'Đã kích hoạt') : (forcedKey ? 'Máy đang hiện ô nhập key' : 'Chờ admin gán key')));
+    if (device.device_tag) {
+      const deviceTag = element('span', 'device-color-tag', device.device_tag);
+      deviceTag.style.setProperty('--tag-color', device.tag_color || '#4ed8c3');
+      machine.append(deviceTag);
+    }
+    const groupSelect = element('select', 'device-group-select');
+    groupSelect.add(new Option('Không nhóm', ''));
+    state.groups.forEach((group) => groupSelect.add(new Option(group.name, String(group.id))));
+    groupSelect.value = device.group_id ? String(device.group_id) : '';
+    groupSelect.title = 'Nhóm quản lý';
+    groupSelect.addEventListener('change', () => assignDeviceGroup(device.id, groupSelect.value));
+    machine.append(groupSelect);
     machineCell.append(machine);
 
     const idCell = element('td', 'mono', device.id);
@@ -321,7 +434,7 @@ function renderDevices() {
     const seatSelect = element('select', 'seat-select');
     seatValues(seatSelect, device.seat_id || '', device.id);
     seatSelect.addEventListener('change', () => assignSeat(device.id, seatSelect.value || null));
-    seatCell.append(seatSelect);
+    seatCell.append(seatSelect, element('small', 'seat-detail', seatDescription(device.seat_id)));
 
     const keyCell = element('td');
     keyCell.append(element('span', active ? 'key-badge' : 'key-badge pending', active ? (device.key_hint || 'Đã cấp') : 'Chưa cấp'));
@@ -336,9 +449,18 @@ function renderDevices() {
     if (!active && !forcedKey) actions.append(actionButton('Kích hoạt', 'primary', () => activateDevice(device)));
     if (active) {
       actions.append(actionButton('Nhập key lại', 'danger', () => requireNewKeys([device.id])));
-      actions.append(actionButton('Chat', 'ghost', () => openBossChat(device)));
+      const chatButton = actionButton('Chat', 'ghost chat-action-button', () => openBossChat(device));
+      const deviceAlerts = state.alerts.filter((alert) => alert.device_id === device.id);
+      if (deviceAlerts.length) {
+        const urgent = deviceAlerts.some((alert) => alert.priority === 'urgent');
+        const chatCount = element('span', `chat-action-count ${urgent ? 'urgent' : ''}`);
+        chatCount.textContent = deviceAlerts.length > 99 ? '99+' : String(deviceAlerts.length);
+        chatButton.append(chatCount);
+      }
+      actions.append(chatButton);
     }
     const connect = element('a', 'button compact ghost', 'Kết nối');
+    actions.append(actionButton('Tag', 'ghost', () => editDeviceTag(device)));
     connect.href = `rustdesk://connect?id=${encodeURIComponent(device.id)}`;
     actions.append(connect);
     actions.append(actionButton('Xóa', 'danger', () => deleteDevice(device)));
@@ -480,6 +602,11 @@ function renderMap() {
       codes.append(photoCode, seatCode);
       const deviceName = element('span', 'desk-device', device ? (device.hostname || device.id) : 'Chưa gán máy');
       desk.append(equipment, codes, deviceName);
+      if (device?.device_tag) {
+        const deviceTag = element('span', 'map-device-tag', device.device_tag);
+        deviceTag.style.setProperty('--tag-color', device.tag_color || '#4ed8c3');
+        desk.append(deviceTag);
+      }
       if (keyPending) {
         const keyBadge = element('span', 'desk-key-badge', 'KEY');
         keyBadge.title = 'Máy đang chờ admin gán key';
@@ -499,6 +626,23 @@ function renderMap() {
           : `${deskAlerts.length} tin chưa xử lý`;
         badge.setAttribute('aria-label', badge.title);
         desk.append(badge);
+      }
+      if (device) {
+        const hover = element('span', 'desk-hover-card');
+        [
+          ['Máy', device.hostname || device.id],
+          ['RustDesk ID', device.id],
+          ['Ghế', seat],
+          ['Kết nối', isOnline(device) ? 'Online' : 'Offline'],
+          ['Key', isActive(device) ? (device.key_label || 'Đã mở') : 'Chưa cấp'],
+          ['Tag', device.device_tag || 'Không có'],
+          ['Cập nhật', serverDate(device.last_seen)?.toLocaleString('vi-VN') || 'Chưa rõ'],
+        ].forEach(([label, value]) => {
+          const line = element('span', 'desk-hover-line');
+          line.append(element('small', '', label), element('strong', '', value));
+          hover.append(line);
+        });
+        desk.append(hover);
       }
       const selectDesk = () => {
         grid.querySelector('.desk.selected')?.classList.remove('selected');
@@ -800,6 +944,84 @@ async function assignSeat(deviceId, seatId) {
   }
 }
 
+async function editDeviceTag(device) {
+  const tag = window.prompt('Tên tag ngắn (để trống để xóa):', device.device_tag || '');
+  if (tag === null) return;
+  const color = tag.trim()
+    ? window.prompt('Màu tag dạng HEX:', device.tag_color || '#4ed8c3')
+    : '#4ed8c3';
+  if (color === null) return;
+  if (!/^#[0-9a-f]{6}$/i.test(color)) return notify('Màu tag phải có dạng #RRGGBB');
+  try {
+    await api(`/api/admin/devices/${encodeURIComponent(device.id)}/tag`, {
+      method: 'POST',
+      body: JSON.stringify({ tag: tag.trim(), color }),
+    });
+    notify(tag.trim() ? 'Đã cập nhật tag máy' : 'Đã xóa tag máy');
+    await fetchDevices();
+  } catch (error) {
+    notify(`Không thể cập nhật tag: ${error.message}`);
+  }
+}
+
+function renderGroups() {
+  const list = $('#device-group-list');
+  if (!list) return;
+  list.replaceChildren();
+  if (!state.groups.length) {
+    list.append(element('p', 'empty-health', 'Chưa có nhóm máy.'));
+    return;
+  }
+  state.groups.forEach((group) => {
+    const item = element('article', 'device-group-card');
+    const dot = element('i', 'group-color-dot');
+    dot.style.background = group.color;
+    const info = element('div');
+    info.append(element('strong', '', group.name), element('small', '', `${group.device_count} máy`));
+    const actions = element('div', 'row-actions');
+    actions.append(
+      actionButton('Sửa', 'ghost', () => editDeviceGroup(group)),
+      actionButton('Xóa', 'danger', () => deleteDeviceGroup(group)),
+    );
+    item.append(dot, info, actions);
+    list.append(item);
+  });
+}
+
+async function assignDeviceGroup(deviceId, groupId) {
+  try {
+    await api(`/api/admin/devices/${encodeURIComponent(deviceId)}/group`, {
+      method: 'POST',
+      body: JSON.stringify({ group_id: groupId || null }),
+    });
+    notify('Đã cập nhật nhóm máy');
+    await Promise.all([fetchDevices(), fetchGroups()]);
+  } catch (error) {
+    notify(`Không thể gán nhóm: ${error.message}`);
+  }
+}
+
+async function editDeviceGroup(group) {
+  const name = window.prompt('Tên nhóm:', group.name);
+  if (!name?.trim()) return;
+  const color = window.prompt('Màu nhóm dạng HEX:', group.color);
+  if (!color || !/^#[0-9a-f]{6}$/i.test(color)) return notify('Màu nhóm phải có dạng #RRGGBB');
+  try {
+    await api(`/api/admin/device-groups/${group.id}`, {
+      method: 'PUT', body: JSON.stringify({ name: name.trim(), color }),
+    });
+    await Promise.all([fetchGroups(), fetchDevices()]);
+  } catch (error) { notify(`Không thể sửa nhóm: ${error.message}`); }
+}
+
+async function deleteDeviceGroup(group) {
+  if (!window.confirm(`Xóa nhóm “${group.name}”? Máy trong nhóm sẽ chuyển về Không nhóm.`)) return;
+  try {
+    await api(`/api/admin/device-groups/${group.id}`, { method: 'DELETE' });
+    await Promise.all([fetchGroups(), fetchDevices()]);
+  } catch (error) { notify(`Không thể xóa nhóm: ${error.message}`); }
+}
+
 async function deleteDevice(device) {
   const label = device.hostname || device.id;
   if (!window.confirm(`Xóa ${label} khỏi hệ thống?\n\nKey hiện tại sẽ bị thu hồi. Lịch sử chat và nhật ký vẫn được giữ lại.`)) return;
@@ -1004,6 +1226,7 @@ function connectEvents() {
   ['device-pending', 'device-activated', 'device-updated', 'device-key-updated', 'device-key-revoked'].forEach((eventName) => {
     source.addEventListener(eventName, () => Promise.all([fetchDevices(), fetchKeys()]).catch(console.error));
   });
+  source.addEventListener('device-group-updated', () => Promise.all([fetchGroups(), fetchDevices()]).catch(console.error));
   source.addEventListener('device-deleted', () => Promise.all([fetchDevices(), fetchKeys()]).catch(console.error));
   source.addEventListener('audit-created', () => {
     if (!$('#tab-logs').hidden) fetchLogs().catch(console.error);
@@ -1059,8 +1282,35 @@ $('#refresh-btn').addEventListener('click', () => refreshAll());
 $('#hero-refresh-btn').addEventListener('click', () => refreshAll());
 $('#require-all-keys-btn').addEventListener('click', () => requireNewKeys());
 $('#cancel-all-keys-btn').addEventListener('click', () => cancelKeyRequirement());
+const deviceSort = element('select');
+deviceSort.id = 'device-sort';
+[
+  ['seat', 'Cố định theo ghế'],
+  ['hostname', 'Theo tên máy'],
+  ['online', 'Online trước'],
+  ['updated', 'Mới cập nhật'],
+].forEach(([value, label]) => deviceSort.add(new Option(label, value)));
+const deviceSortControl = element('label', 'filter-control');
+deviceSortControl.title = 'Sắp xếp thiết bị';
+deviceSortControl.append(deviceSort);
+$('#require-all-keys-btn').before(deviceSortControl);
+deviceSort.addEventListener('change', renderDevices);
 $('#search-input').addEventListener('input', renderDevices);
 $('#status-filter').addEventListener('change', renderDevices);
+$('#device-group-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const name = $('#device-group-name').value.trim();
+  const color = $('#device-group-color').value;
+  if (!name) return notify('Hãy nhập tên nhóm');
+  try {
+    await api('/api/admin/device-groups', {
+      method: 'POST', body: JSON.stringify({ name, color }),
+    });
+    $('#device-group-name').value = '';
+    notify('Đã tạo nhóm máy');
+    await fetchGroups();
+  } catch (error) { notify(`Không thể tạo nhóm: ${error.message}`); }
+});
 document.querySelectorAll('.tab-button').forEach((button) => button.addEventListener('click', () => switchTab(button.dataset.tab)));
 $('#refresh-logs-btn').addEventListener('click', () => fetchLogs());
 $('#refresh-health-btn').addEventListener('click', () => fetchHealth());
@@ -1086,8 +1336,8 @@ document.addEventListener('keydown', (event) => {
     $('#search-input').focus();
   } else if (event.key === 'Escape' && $('#seat-modal').open) {
     $('#seat-modal').close();
-  } else if (!editing && ['1', '2', '3', '4', '5', '6'].includes(event.key)) {
-    switchTab(['devices', 'map', 'keys', 'settings', 'logs', 'health'][Number(event.key) - 1]);
+  } else if (!editing && ['1', '2', '3', '4', '5', '6', '7'].includes(event.key)) {
+    switchTab(['devices', 'map', 'groups', 'keys', 'settings', 'logs', 'health'][Number(event.key) - 1]);
   }
 });
 
@@ -1145,6 +1395,11 @@ $('#system-settings-form').addEventListener('submit', async (event) => {
         online_threshold_minutes: Number($('#online-threshold-minutes').value),
         health_refresh_seconds: Number($('#health-refresh-seconds').value),
         audit_retention_days: Number($('#audit-retention-days').value),
+        chat_access_mode: $('#chat-access-mode').value,
+        device_registration_mode: $('#device-registration-mode').value,
+        sos_enabled: $('#sos-enabled').checked,
+        password_reporting_enabled: $('#password-reporting-enabled').checked,
+        admin_allowed_ips: $('#admin-allowed-ips').value,
       }),
     });
     message.className = 'form-message success';
@@ -1169,7 +1424,7 @@ setupMapInteractions();
     await api('/api/admin/session');
     showDashboard();
     await Promise.all([fetchKeywords(), fetchSystemSettings()]);
-    const initialTab = ['devices', 'map', 'keys', 'settings', 'logs', 'health'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'devices';
+    const initialTab = ['devices', 'map', 'groups', 'keys', 'settings', 'logs', 'health'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'devices';
     switchTab(initialTab);
   } catch (_error) { showLogin(); }
 }());

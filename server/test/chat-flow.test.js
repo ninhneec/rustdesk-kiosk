@@ -61,6 +61,22 @@ test('admin-bound and self-destruct key chat flow', async () => {
   assert.equal(response.status, 200);
   adminCookie = response.headers.get('set-cookie').split(';')[0];
 
+  response = await adminRequest('/api/admin/settings/system', {
+    method: 'POST',
+    ...json({
+      audit_retention_days: 180,
+      health_refresh_seconds: 15,
+      dashboard_refresh_seconds: 20,
+      online_threshold_minutes: 5,
+      chat_access_mode: 'key_required',
+      device_registration_mode: 'open',
+      sos_enabled: true,
+      password_reporting_enabled: true,
+      admin_allowed_ips: '',
+    }),
+  });
+  assert.equal(response.status, 200);
+
   response = await request('/api/device/save-password', {
     method: 'POST',
     ...json({ id: 'device-101', hostname: 'Seat client', pass: '', chat_token: 'device-token-101' }),
@@ -363,6 +379,42 @@ test('admin-bound and self-destruct key chat flow', async () => {
   const recoveredActiveDevice = (await response.json()).find((device) => device.id === 'device-101');
   assert.equal(recoveredActiveDevice.seat_id, 'M01');
   assert.equal(recoveredActiveDevice.key_entry_required, 0);
+  response = await adminRequest('/api/admin/devices/device-101/tag', {
+    method: 'POST',
+    ...json({ tag: 'VIP', color: '#ef4444' }),
+  });
+  assert.equal(response.status, 200);
+  response = await adminRequest('/api/admin/devices');
+  const taggedDevice = (await response.json()).find((device) => device.id === 'device-101');
+  assert.equal(taggedDevice.device_tag, 'VIP');
+  assert.equal(taggedDevice.tag_color, '#ef4444');
+
+  response = await adminRequest('/api/admin/device-groups', {
+    method: 'POST',
+    ...json({ name: 'Dãy ưu tiên', color: '#8b5cf6' }),
+  });
+  assert.equal(response.status, 201);
+  const createdGroup = await response.json();
+  response = await adminRequest('/api/admin/devices/device-101/group', {
+    method: 'POST',
+    ...json({ group_id: createdGroup.id }),
+  });
+  assert.equal(response.status, 200);
+  response = await adminRequest('/api/admin/devices');
+  const groupedDevice = (await response.json()).find((device) => device.id === 'device-101');
+  assert.equal(groupedDevice.group_id, createdGroup.id);
+  assert.equal(groupedDevice.group_name, 'Dãy ưu tiên');
+  response = await adminRequest(`/api/admin/device-groups/${createdGroup.id}`, {
+    method: 'PUT',
+    ...json({ name: 'Máy cần chú ý', color: '#f97316' }),
+  });
+  assert.equal(response.status, 200);
+  response = await adminRequest('/api/admin/device-groups');
+  assert.equal((await response.json()).find((group) => group.id === createdGroup.id).device_count, 1);
+  response = await adminRequest(`/api/admin/device-groups/${createdGroup.id}`, { method: 'DELETE' });
+  assert.equal(response.status, 200);
+  response = await adminRequest('/api/admin/devices');
+  assert.equal((await response.json()).find((device) => device.id === 'device-101').group_id, null);
 
   response = await adminRequest('/api/admin/chat/messages', {
     method: 'POST',
@@ -399,14 +451,38 @@ test('admin-bound and self-destruct key chat flow', async () => {
       health_refresh_seconds: 10,
       dashboard_refresh_seconds: 15,
       online_threshold_minutes: 4,
+      chat_access_mode: 'open',
+      device_registration_mode: 'closed',
+      sos_enabled: true,
+      password_reporting_enabled: true,
+      admin_allowed_ips: '',
     }),
   });
   assert.equal(response.status, 200);
-  assert.equal((await response.json()).audit_retention_days, 90);
+  const savedSettings = await response.json();
+  assert.equal(savedSettings.audit_retention_days, 90);
+  assert.equal(savedSettings.chat_access_mode, 'open');
+  assert.equal(savedSettings.device_registration_mode, 'closed');
+  response = await adminRequest('/api/admin/settings/system', {
+    method: 'POST',
+    ...json({ ...savedSettings, admin_allowed_ips: '203.0.113.20' }),
+  });
+  assert.equal(response.status, 400);
+  response = await request('/api/device/save-password', {
+    method: 'POST',
+    ...json({
+      id: 'blocked-new-device', hostname: 'Blocked client', pass: '',
+      chat_token: 'blocked-token', client_role: 'core',
+    }),
+  });
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).code, 'DEVICE_REGISTRATION_CLOSED');
   response = await adminRequest('/api/admin/system/health');
   assert.equal(response.status, 200);
   const health = await response.json();
   assert.equal(health.status, 'ok');
   assert.equal(typeof health.process.uptime_seconds, 'number');
   assert.equal(typeof health.database.bytes, 'number');
+  assert.equal(Object.hasOwn(health.traffic, 'rx_bytes'), true);
+  assert.equal(Object.hasOwn(health.traffic, 'tx_bytes'), true);
 });

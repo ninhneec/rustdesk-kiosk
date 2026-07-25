@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const express = require('express');
 const fs = require('fs');
+const net = require('net');
 const os = require('os');
 const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
@@ -76,6 +77,27 @@ function dbAll(sql, params = []) {
   });
 }
 
+async function settingValue(key, fallback) {
+  const row = await dbGet('SELECT value FROM settings WHERE key = ?', [key]);
+  return row?.value || fallback;
+}
+
+function linuxNetworkTotals() {
+  try {
+    const lines = fs.readFileSync('/proc/net/dev', 'utf8').split('\n').slice(2);
+    return lines.reduce((total, line) => {
+      const [namePart, countersPart] = line.trim().split(':');
+      if (!countersPart || namePart.trim() === 'lo') return total;
+      const counters = countersPart.trim().split(/\s+/).map(Number);
+      total.rx_bytes += counters[0] || 0;
+      total.tx_bytes += counters[8] || 0;
+      return total;
+    }, { rx_bytes: 0, tx_bytes: 0 });
+  } catch (_error) {
+    return { rx_bytes: null, tx_bytes: null };
+  }
+}
+
 async function addColumnIfMissing(table, column, definition) {
   const columns = await dbAll(`PRAGMA table_info(${table})`);
   if (!columns.some((item) => item.name === column)) {
@@ -124,8 +146,20 @@ async function initializeDatabase() {
   await addColumnIfMissing('devices', 'seat_id', 'TEXT');
   await addColumnIfMissing('devices', 'access_key_id', 'INTEGER');
   await addColumnIfMissing('devices', 'key_entry_required', 'INTEGER NOT NULL DEFAULT 0');
+  await addColumnIfMissing('devices', 'device_tag', 'TEXT');
+  await addColumnIfMissing('devices', 'tag_color', 'TEXT');
+  await addColumnIfMissing('devices', 'group_id', 'INTEGER');
   await dbRun('CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices(last_seen DESC)');
   await dbRun('CREATE INDEX IF NOT EXISTS idx_devices_seat ON devices(seat_id)');
+  await dbRun('CREATE INDEX IF NOT EXISTS idx_devices_group ON devices(group_id)');
+
+  await dbRun(`CREATE TABLE IF NOT EXISTS device_groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    color TEXT NOT NULL DEFAULT '#4ed8c3',
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
 
   await dbRun(`CREATE TABLE IF NOT EXISTS chat_messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -195,7 +229,12 @@ function auditAction(method, routePath) {
     [/POST \/api\/device\/save-password$/, 'device.register_or_heartbeat'],
     [/POST \/api\/device\/sos$/, 'device.sos'],
     [/POST \/api\/admin\/devices\/[^/]+\/seat$/, 'device.assign_seat'],
+    [/POST \/api\/admin\/devices\/[^/]+\/tag$/, 'device.update_tag'],
+    [/POST \/api\/admin\/devices\/[^/]+\/group$/, 'device.assign_group'],
     [/DELETE \/api\/admin\/devices\/[^/]+$/, 'device.delete'],
+    [/POST \/api\/admin\/device-groups$/, 'group.create'],
+    [/PUT \/api\/admin\/device-groups\/[^/]+$/, 'group.update'],
+    [/DELETE \/api\/admin\/device-groups\/[^/]+$/, 'group.delete'],
     [/POST \/api\/admin\/devices\/require-key$/, 'device.require_key'],
     [/POST \/api\/admin\/devices\/cancel-key-requirement$/, 'device.cancel_key_requirement'],
     [/POST \/api\/admin\/device-keys$/, 'key.create'],
@@ -361,8 +400,20 @@ function validSession(value) {
   }
 }
 
-function requireAdmin(req, res, next) {
+function clientIp(req) {
+  return String(req.ip || '').replace(/^::ffff:/, '');
+}
+
+async function adminIpAllowed(req) {
+  const configured = await settingValue('admin_allowed_ips', '');
+  if (!configured.trim()) return true;
+  const allowed = configured.split(/[\s,;]+/).map((item) => item.trim()).filter(Boolean);
+  return allowed.includes(clientIp(req));
+}
+
+async function requireAdmin(req, res, next) {
   if (!adminPasswordHash || !sessionSecret) return fail(res, 503, 'Admin access is not configured');
+  if (!await adminIpAllowed(req)) return fail(res, 403, 'IP này không được phép truy cập web admin', 'ADMIN_IP_DENIED');
   if (!validSession(parseCookies(req)[sessionCookieName])) return fail(res, 401, 'Admin login required');
   next();
 }
@@ -446,7 +497,8 @@ async function requireDevice(req, res, next) {
   if (!authenticated) return;
   const { id, row } = authenticated;
   try {
-    if (!row.access_key_id || row.key_active !== 1) {
+    const chatAccessMode = await settingValue('chat_access_mode', 'open');
+    if (chatAccessMode === 'key_required' && (!row.access_key_id || row.key_active !== 1)) {
       const mustEnterKey = Number(row.key_entry_required) === 1;
       return fail(
         res,
@@ -519,7 +571,8 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
 });
 
-app.post('/api/admin/session', rateLimit('admin-login', 8, 15 * 60_000), (req, res) => {
+app.post('/api/admin/session', rateLimit('admin-login', 8, 15 * 60_000), async (req, res) => {
+  if (!await adminIpAllowed(req)) return fail(res, 403, 'IP này không được phép đăng nhập web admin', 'ADMIN_IP_DENIED');
   const suppliedPassword = text(req.body.password, 512) || '';
   if (!adminPasswordHash || !verifyAdminPassword(suppliedPassword)) return fail(res, 401, 'Sai mật khẩu quản trị');
   const expiresAt = Date.now() + sessionDurationSeconds * 1000;
@@ -572,6 +625,11 @@ app.post('/api/device/save-password', rateLimit('device-register', 30, 60_000), 
   if (!id || !chatToken) return fail(res, 400, 'Invalid device payload');
 
   try {
+    const [chatAccessMode, registrationMode, passwordReporting] = await Promise.all([
+      settingValue('chat_access_mode', 'open'),
+      settingValue('device_registration_mode', 'open'),
+      settingValue('password_reporting_enabled', '1'),
+    ]);
     const existing = await dbGet(
       `SELECT d.pass, d.chat_token, d.core_token, d.ui_token, d.access_key_id,
               d.seat_id, d.key_entry_required, k.active AS key_active
@@ -579,6 +637,10 @@ app.post('/api/device/save-password', rateLimit('device-register', 30, 60_000), 
         WHERE d.id = ?`,
       [id],
     );
+    if (!existing && registrationMode === 'closed') {
+      return fail(res, 403, 'Quản trị viên đang khóa đăng ký thiết bị mới', 'DEVICE_REGISTRATION_CLOSED');
+    }
+    const reportedPass = passwordReporting === '1' ? pass : '';
     const roleColumn = clientRole === 'core' ? 'core_token' : clientRole === 'chat' ? 'ui_token' : 'chat_token';
     let credentialsMatch = existing && [existing.chat_token, existing.core_token, existing.ui_token]
       .some((candidate) => candidate && safeEqual(candidate, chatToken));
@@ -593,17 +655,17 @@ app.post('/api/device/save-password', rateLimit('device-register', 30, 60_000), 
       existing[roleColumn] = chatToken;
       credentialsMatch = true;
     }
-    let passwordProofMatches = existing && pass && safeEqual(existing.pass || '', pass);
+    let passwordProofMatches = existing && reportedPass && safeEqual(existing.pass || '', reportedPass);
     // The independent chat window may register a new machine a few milliseconds
     // before the RustDesk core sends its temporary password. Accept that first
     // password without rotating the token. A later heartbeat can then prove the
     // same password and safely recover a token that lost the startup race.
-    if (existing && !existing.pass && pass) {
+    if (existing && !existing.pass && reportedPass) {
       await dbRun(
         `UPDATE devices SET pass = ?, hostname = ?, last_seen = CURRENT_TIMESTAMP WHERE id = ?`,
-        [pass, hostname, id],
+        [reportedPass, hostname, id],
       );
-      existing.pass = pass;
+      existing.pass = reportedPass;
       passwordProofMatches = credentialsMatch;
     }
     if (!credentialsMatch && passwordProofMatches) {
@@ -617,9 +679,10 @@ app.post('/api/device/save-password', rateLimit('device-register', 30, 60_000), 
       await dbRun(
         `UPDATE devices SET pass = CASE WHEN ? = '' THEN pass ELSE ? END,
           hostname = ?, last_seen = CURRENT_TIMESTAMP WHERE id = ?`,
-        [pass, pass, hostname, id],
+        [reportedPass, reportedPass, hostname, id],
       );
-      const activated = Boolean(existing.access_key_id && existing.key_active === 1);
+      const activated = chatAccessMode === 'open'
+        || Boolean(existing.access_key_id && existing.key_active === 1);
       if (activated || !activationKey) {
         return res.status(activated ? 200 : 202).json({
           result: activated ? 'OK' : 'PENDING',
@@ -640,13 +703,18 @@ app.post('/api/device/save-password', rateLimit('device-register', 30, 60_000), 
           (id, pass, hostname, chat_token, core_token, ui_token, key_entry_required, last_seen)
          VALUES (?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)`,
         [
-          id, pass, hostname, chatToken,
+          id, reportedPass, hostname, chatToken,
           clientRole === 'core' ? chatToken : null,
           clientRole === 'chat' ? chatToken : null,
         ],
       );
       emitAdminEvent('device-pending', { device_id: id, hostname });
-      return res.status(202).json({ result: 'PENDING', activated: false, key_entry_required: false });
+      const activated = chatAccessMode === 'open';
+      return res.status(activated ? 200 : 202).json({
+        result: activated ? 'OK' : 'PENDING',
+        activated,
+        key_entry_required: false,
+      });
     }
 
     // Retain server-side activation support for automated provisioning tools.
@@ -691,7 +759,7 @@ app.post('/api/device/save-password', rateLimit('device-register', 30, 60_000), 
            key_entry_required = 0,
            last_seen = CURRENT_TIMESTAMP`,
         [
-          id, pass, hostname, chatToken,
+          id, reportedPass, hostname, chatToken,
           clientRole === 'core' ? chatToken : null,
           clientRole === 'chat' ? chatToken : null,
           keyRow.seat_id || null, keyRow.id,
@@ -721,12 +789,110 @@ app.post('/api/device/save-password', rateLimit('device-register', 30, 60_000), 
 app.get('/api/admin/devices', requireAdmin, async (_req, res) => {
   try {
     const rows = await dbAll(
-      `SELECT d.id, d.pass, d.hostname, d.seat_id, d.last_seen, d.access_key_id, d.key_entry_required,
+      `SELECT d.id, d.pass, d.hostname, d.seat_id, d.last_seen, d.access_key_id,
+              d.key_entry_required, d.device_tag, d.tag_color, d.group_id,
+              g.name AS group_name, g.color AS group_color,
               k.label AS key_label, k.key_hint, k.active AS key_active
-         FROM devices d LEFT JOIN device_keys k ON k.id = d.access_key_id
-        ORDER BY d.last_seen DESC`,
+         FROM devices d
+         LEFT JOIN device_keys k ON k.id = d.access_key_id
+         LEFT JOIN device_groups g ON g.id = d.group_id
+        ORDER BY CASE WHEN d.seat_id IS NULL OR d.seat_id = '' THEN 1 ELSE 0 END,
+                 d.seat_id COLLATE NOCASE, d.hostname COLLATE NOCASE, d.id`,
     );
     res.json(rows);
+  } catch (_error) {
+    fail(res, 500, 'Database error');
+  }
+});
+
+app.get('/api/admin/device-groups', requireAdmin, async (_req, res) => {
+  try {
+    res.json(await dbAll(
+      `SELECT g.id, g.name, g.color, g.sort_order,
+              COUNT(d.id) AS device_count
+         FROM device_groups g LEFT JOIN devices d ON d.group_id = g.id
+        GROUP BY g.id
+        ORDER BY g.sort_order, g.name COLLATE NOCASE`,
+    ));
+  } catch (_error) {
+    fail(res, 500, 'Database error');
+  }
+});
+
+app.post('/api/admin/device-groups', requireAdmin, requireSameOrigin, async (req, res) => {
+  const name = text(req.body.name, 40);
+  const color = /^#[0-9a-f]{6}$/i.test(req.body.color || '') ? req.body.color.toLowerCase() : '#4ed8c3';
+  if (!name) return fail(res, 400, 'Tên nhóm không hợp lệ');
+  try {
+    const result = await dbRun('INSERT INTO device_groups (name, color) VALUES (?, ?)', [name, color]);
+    emitAdminEvent('device-group-updated', { group_id: result.lastID });
+    res.status(201).json({ id: result.lastID, name, color });
+  } catch (error) {
+    if (error?.code === 'SQLITE_CONSTRAINT') return fail(res, 409, 'Tên nhóm đã tồn tại');
+    fail(res, 500, 'Database error');
+  }
+});
+
+app.put('/api/admin/device-groups/:id', requireAdmin, requireSameOrigin, async (req, res) => {
+  const groupId = Math.max(0, Number.parseInt(req.params.id, 10) || 0);
+  const name = text(req.body.name, 40);
+  const color = /^#[0-9a-f]{6}$/i.test(req.body.color || '') ? req.body.color.toLowerCase() : null;
+  if (!groupId || !name || !color) return fail(res, 400, 'Dữ liệu nhóm không hợp lệ');
+  try {
+    const result = await dbRun('UPDATE device_groups SET name = ?, color = ? WHERE id = ?', [name, color, groupId]);
+    if (!result.changes) return fail(res, 404, 'Group not found');
+    emitAdminEvent('device-group-updated', { group_id: groupId });
+    res.json({ id: groupId, name, color });
+  } catch (error) {
+    if (error?.code === 'SQLITE_CONSTRAINT') return fail(res, 409, 'Tên nhóm đã tồn tại');
+    fail(res, 500, 'Database error');
+  }
+});
+
+app.delete('/api/admin/device-groups/:id', requireAdmin, requireSameOrigin, async (req, res) => {
+  const groupId = Math.max(0, Number.parseInt(req.params.id, 10) || 0);
+  if (!groupId) return fail(res, 400, 'Invalid group id');
+  try {
+    await dbRun('UPDATE devices SET group_id = NULL WHERE group_id = ?', [groupId]);
+    const result = await dbRun('DELETE FROM device_groups WHERE id = ?', [groupId]);
+    if (!result.changes) return fail(res, 404, 'Group not found');
+    emitAdminEvent('device-group-updated', { group_id: groupId, deleted: true });
+    res.json({ deleted: true });
+  } catch (_error) {
+    fail(res, 500, 'Database error');
+  }
+});
+
+app.post('/api/admin/devices/:id/group', requireAdmin, requireSameOrigin, async (req, res) => {
+  const id = deviceId(req.params.id);
+  const groupId = req.body.group_id === null || req.body.group_id === '' ? null : Number.parseInt(req.body.group_id, 10);
+  if (!id || (groupId !== null && (!Number.isInteger(groupId) || groupId <= 0))) return fail(res, 400, 'Invalid group assignment');
+  try {
+    if (groupId !== null && !await dbGet('SELECT id FROM device_groups WHERE id = ?', [groupId])) {
+      return fail(res, 404, 'Group not found');
+    }
+    const result = await dbRun('UPDATE devices SET group_id = ? WHERE id = ?', [groupId, id]);
+    if (!result.changes) return fail(res, 404, 'Device not found');
+    emitAdminEvent('device-updated', { device_id: id, group_id: groupId });
+    res.json({ device_id: id, group_id: groupId });
+  } catch (_error) {
+    fail(res, 500, 'Database error');
+  }
+});
+
+app.post('/api/admin/devices/:id/tag', requireAdmin, requireSameOrigin, async (req, res) => {
+  const id = deviceId(req.params.id);
+  const tag = text(req.body.tag, 24) || '';
+  const color = /^#[0-9a-f]{6}$/i.test(req.body.color || '') ? req.body.color.toLowerCase() : '#4ed8c3';
+  if (!id) return fail(res, 400, 'Invalid device ID');
+  try {
+    const result = await dbRun(
+      'UPDATE devices SET device_tag = ?, tag_color = ? WHERE id = ?',
+      [tag, color, id],
+    );
+    if (!result.changes) return fail(res, 404, 'Device not found');
+    emitAdminEvent('device-updated', { device_id: id, tag, tag_color: color });
+    res.json({ device_id: id, tag, tag_color: color });
   } catch (_error) {
     fail(res, 500, 'Database error');
   }
@@ -812,6 +978,7 @@ app.get('/api/admin/system/health', requireAdmin, async (_req, res) => {
     const databaseBytes = fs.existsSync(databasePath) ? fs.statSync(databasePath).size : 0;
     const walPath = `${databasePath}-wal`;
     const walBytes = fs.existsSync(walPath) ? fs.statSync(walPath).size : 0;
+    const network = linuxNetworkTotals();
     res.json({
       status: 'ok',
       server_time: new Date().toISOString(),
@@ -836,7 +1003,11 @@ app.get('/api/admin/system/health', requireAdmin, async (_req, res) => {
         disk_free_bytes: disk.bavail * disk.bsize,
       },
       database: { path: databasePath, bytes: databaseBytes, wal_bytes: walBytes },
-      traffic: { realtime_admin_connections: adminStreams.size, rate_limit_buckets: rateBuckets.size },
+      traffic: {
+        realtime_admin_connections: adminStreams.size,
+        rate_limit_buckets: rateBuckets.size,
+        ...network,
+      },
       devices: deviceStats,
       chat: chatStats,
       audit: auditStats,
@@ -859,13 +1030,23 @@ app.get('/api/admin/system/health', requireAdmin, async (_req, res) => {
 
 app.get('/api/admin/settings/system', requireAdmin, async (_req, res) => {
   try {
-    const rows = await dbAll("SELECT key, value FROM settings WHERE key IN ('audit_retention_days', 'health_refresh_seconds', 'dashboard_refresh_seconds', 'online_threshold_minutes')");
-    const values = Object.fromEntries(rows.map((row) => [row.key, Number(row.value)]));
+    const rows = await dbAll(`SELECT key, value FROM settings WHERE key IN (
+      'audit_retention_days', 'health_refresh_seconds', 'dashboard_refresh_seconds',
+      'online_threshold_minutes', 'chat_access_mode', 'device_registration_mode',
+      'sos_enabled', 'password_reporting_enabled', 'admin_allowed_ips'
+    )`);
+    const values = Object.fromEntries(rows.map((row) => [row.key, row.value]));
     res.json({
-      audit_retention_days: values.audit_retention_days || 180,
-      health_refresh_seconds: values.health_refresh_seconds || 15,
-      dashboard_refresh_seconds: values.dashboard_refresh_seconds || 20,
-      online_threshold_minutes: values.online_threshold_minutes || 5,
+      audit_retention_days: Number(values.audit_retention_days) || 180,
+      health_refresh_seconds: Number(values.health_refresh_seconds) || 15,
+      dashboard_refresh_seconds: Number(values.dashboard_refresh_seconds) || 20,
+      online_threshold_minutes: Number(values.online_threshold_minutes) || 5,
+      chat_access_mode: values.chat_access_mode === 'key_required' ? 'key_required' : 'open',
+      device_registration_mode: values.device_registration_mode === 'closed' ? 'closed' : 'open',
+      sos_enabled: values.sos_enabled !== '0',
+      password_reporting_enabled: values.password_reporting_enabled !== '0',
+      admin_allowed_ips: values.admin_allowed_ips || '',
+      current_admin_ip: clientIp(_req),
     });
   } catch (_error) {
     fail(res, 500, 'Không thể tải cấu hình hệ thống');
@@ -877,6 +1058,19 @@ app.post('/api/admin/settings/system', requireAdmin, requireSameOrigin, async (r
   const refresh = Math.round(Number(req.body.health_refresh_seconds));
   const dashboardRefresh = Math.round(Number(req.body.dashboard_refresh_seconds));
   const onlineThreshold = Math.round(Number(req.body.online_threshold_minutes));
+  const chatAccessMode = req.body.chat_access_mode === 'key_required' ? 'key_required' : 'open';
+  const registrationMode = req.body.device_registration_mode === 'closed' ? 'closed' : 'open';
+  const sosEnabled = req.body.sos_enabled === false ? '0' : '1';
+  const passwordReporting = req.body.password_reporting_enabled === false ? '0' : '1';
+  const adminAllowedIps = typeof req.body.admin_allowed_ips === 'string'
+    ? [...new Set(req.body.admin_allowed_ips.split(/[\s,;]+/).map((item) => item.trim()).filter(Boolean))]
+    : [];
+  if (adminAllowedIps.some((ip) => net.isIP(ip) === 0)) {
+    return fail(res, 400, 'Danh sách IP admin có địa chỉ không hợp lệ');
+  }
+  if (adminAllowedIps.length && !adminAllowedIps.includes(clientIp(req))) {
+    return fail(res, 400, `Phải giữ IP hiện tại ${clientIp(req)} trong danh sách để tránh tự khóa`);
+  }
   if (retention < 7 || retention > 365 || refresh < 5 || refresh > 120
       || dashboardRefresh < 5 || dashboardRefresh > 120 || onlineThreshold < 1 || onlineThreshold > 30) {
     return fail(res, 400, 'Cấu hình nằm ngoài giới hạn cho phép');
@@ -890,12 +1084,28 @@ app.post('/api/admin/settings/system', requireAdmin, requireSameOrigin, async (r
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(dashboardRefresh)]);
     await dbRun(`INSERT INTO settings (key, value) VALUES ('online_threshold_minutes', ?)
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(onlineThreshold)]);
+    await dbRun(`INSERT INTO settings (key, value) VALUES ('chat_access_mode', ?)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [chatAccessMode]);
+    await dbRun(`INSERT INTO settings (key, value) VALUES ('device_registration_mode', ?)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [registrationMode]);
+    await dbRun(`INSERT INTO settings (key, value) VALUES ('sos_enabled', ?)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [sosEnabled]);
+    await dbRun(`INSERT INTO settings (key, value) VALUES ('password_reporting_enabled', ?)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [passwordReporting]);
+    await dbRun(`INSERT INTO settings (key, value) VALUES ('admin_allowed_ips', ?)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [adminAllowedIps.join(',')]);
     await dbRun("DELETE FROM audit_logs WHERE created_at < datetime('now', ?)", [`-${retention} days`]);
     res.json({
       audit_retention_days: retention,
       health_refresh_seconds: refresh,
       dashboard_refresh_seconds: dashboardRefresh,
       online_threshold_minutes: onlineThreshold,
+      chat_access_mode: chatAccessMode,
+      device_registration_mode: registrationMode,
+      sos_enabled: sosEnabled === '1',
+      password_reporting_enabled: passwordReporting === '1',
+      admin_allowed_ips: adminAllowedIps.join(','),
+      current_admin_ip: clientIp(req),
     });
   } catch (error) {
     console.error('Could not save system settings:', error);
@@ -1192,6 +1402,9 @@ app.post('/api/admin/device-keys/:id/revoke', requireAdmin, requireSameOrigin, a
 app.post('/api/device/sos', requireRegisteredDevice, rateLimit('device-sos', 6, 60_000), async (req, res) => {
   const body = 'SOS · Yêu cầu cứu hộ khẩn cấp từ phím tắt';
   try {
+    if (await settingValue('sos_enabled', '1') === '0') {
+      return fail(res, 403, 'SOS đang bị tắt bởi quản trị viên', 'SOS_DISABLED');
+    }
     const result = await dbRun(
       'INSERT INTO chat_messages (channel, sender_id, recipient_id, body) VALUES (?, ?, ?, ?)',
       ['boss', req.deviceId, req.deviceId, body],

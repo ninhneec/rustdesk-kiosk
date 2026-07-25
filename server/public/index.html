@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07111f">
   <title>RustDesk Kiosk · Trung tâm hỗ trợ</title>
   <meta name="description" content="Bảng điều phối thiết bị và hỗ trợ RustDesk Kiosk P204">
-  <link rel="stylesheet" href="style.css?v=ops-dashboard-3">
+  <link rel="stylesheet" href="style.css?v=ops-dashboard-5">
 </head>
 <body>
   <section id="login-view" class="auth-view">
@@ -42,6 +42,7 @@
           <div><strong>P204</strong><small>Phòng máy đang quản lý</small></div>
         </div>
         <nav class="section-tabs" aria-label="Khu vực quản lý">
+          <button class="tab-button" data-tab="groups" type="button"><span aria-hidden="true">◎</span><b>Nhóm máy</b><small>Tạo và phân loại</small></button>
           <button class="tab-button active" data-tab="devices" type="button"><span aria-hidden="true">◫</span><b>Thiết bị</b><small>Máy và trạng thái</small></button>
           <button class="tab-button" data-tab="map" type="button"><span aria-hidden="true">⌘</span><b>Sơ đồ phòng</b><small>36 chỗ ngồi</small></button>
           <button class="tab-button" data-tab="keys" type="button"><span aria-hidden="true">◇</span><b>Key truy cập</b><small>Cấp và thu hồi</small></button>
@@ -125,6 +126,21 @@
           <div class="map-help">Kéo để di chuyển · Cuộn để zoom · Nhấp 2 lần vào bàn để xem máy</div>
           <div id="desk-grid" class="room-plan" aria-label="Sơ đồ 36 chỗ ngồi phòng P204"></div>
         </div>
+      </section>
+
+      <section id="tab-groups" class="tab-panel groups-layout" hidden>
+        <article class="panel">
+          <div class="panel-heading"><div><p class="eyebrow">NHÓM MÁY</p><h2>Tạo nhóm quản lý</h2></div></div>
+          <form id="device-group-form" class="stack-form">
+            <label>Tên nhóm<input id="device-group-name" maxlength="40" placeholder="Ví dụ: Dãy 1, VIP, Thi kỹ năng"></label>
+            <label>Màu nhóm<input id="device-group-color" type="color" value="#4ed8c3"></label>
+            <button class="button primary wide" type="submit">Tạo nhóm</button>
+          </form>
+        </article>
+        <article class="panel">
+          <div class="panel-heading"><div><p class="eyebrow">DANH SÁCH</p><h2>Các nhóm hiện có</h2></div></div>
+          <div id="device-group-list" class="device-group-list"></div>
+        </article>
       </section>
 
       <section id="tab-keys" class="tab-panel key-layout" hidden>
@@ -220,6 +236,18 @@
             <button id="refresh-health-btn" class="button primary compact" type="button">Kiểm tra ngay</button>
           </div>
           <div id="health-summary" class="health-summary"></div>
+          <div class="health-visuals">
+            <section class="health-gauges" aria-label="Tỷ lệ sử dụng tài nguyên">
+              <article id="gauge-cpu" class="health-gauge"><div><strong>0%</strong></div><span>CPU load</span><small>Đang đo</small></article>
+              <article id="gauge-ram" class="health-gauge"><div><strong>0%</strong></div><span>RAM VPS</span><small>Đang đo</small></article>
+              <article id="gauge-disk" class="health-gauge"><div><strong>0%</strong></div><span>Ổ đĩa</span><small>Đang đo</small></article>
+            </section>
+            <section class="health-history">
+              <header><div><h3>Xu hướng tài nguyên</h3><small>40 lần đo gần nhất</small></div><strong id="network-rate">Đang đo băng thông…</strong></header>
+              <svg id="health-history-chart" role="img" aria-label="Biểu đồ CPU, RAM và ổ đĩa"></svg>
+              <div class="chart-legend"><span class="cpu">CPU</span><span class="ram">RAM</span><span class="disk">Ổ đĩa</span></div>
+            </section>
+          </div>
           <div class="health-columns">
             <section><h3>Tiến trình</h3><dl id="health-process"></dl></section>
             <section><h3>Máy chủ</h3><dl id="health-host"></dl></section>
@@ -232,8 +260,30 @@
           </div>
         </article>
         <article class="panel">
-          <div class="panel-heading"><div><p class="eyebrow">SETTINGS</p><h2>Cấu hình vận hành</h2></div></div>
-          <form id="system-settings-form" class="stack-form">
+          <div class="panel-heading"><div><p class="eyebrow">SETTINGS</p><h2>Cấu hình vận hành</h2><small class="map-note">Thay đổi trực tiếp, không cần SSH vào VPS.</small></div></div>
+          <form id="system-settings-form" class="stack-form settings-groups">
+            <div class="settings-section-label"><span>01</span><div><strong>Quyền truy cập</strong><small>Cách máy mới tham gia hệ thống</small></div></div>
+            <label>Key mode
+              <select id="chat-access-mode">
+                <option value="open">Mở mặc định · không cần duyệt key</option>
+                <option value="key_required">Bắt buộc key hợp lệ</option>
+              </select>
+            </label>
+            <label>Thiết bị mới
+              <select id="device-registration-mode">
+                <option value="open">Tự đăng ký</option>
+                <option value="closed">Khóa toàn bộ máy mới</option>
+              </select>
+            </label>
+            <div class="settings-section-label"><span>02</span><div><strong>Chat & SOS</strong><small>Quyền gửi dữ liệu từ máy trạm</small></div></div>
+            <label class="setting-toggle"><input id="sos-enabled" type="checkbox"> Cho phép nút SOS</label>
+            <label class="setting-toggle"><input id="password-reporting-enabled" type="checkbox"> Hiển thị mật khẩu RustDesk trên web</label>
+            <div class="settings-section-label"><span>03</span><div><strong>Bảo vệ admin</strong><small>Giới hạn nơi được phép đăng nhập</small></div></div>
+            <label>IP được đăng nhập admin
+              <textarea id="admin-allowed-ips" rows="3" placeholder="Để trống = cho mọi IP&#10;Ví dụ: 1.2.3.4, 5.6.7.8"></textarea>
+              <small>IP hiện tại: <strong id="current-admin-ip">—</strong></small>
+            </label>
+            <div class="settings-section-label"><span>04</span><div><strong>Hiệu năng & lưu trữ</strong><small>Cân bằng độ realtime và tải VPS</small></div></div>
             <label>Refresh dashboard (giây)<input id="dashboard-refresh-seconds" type="number" min="5" max="120"></label>
             <label>Máy được tính online trong (phút)<input id="online-threshold-minutes" type="number" min="1" max="30"></label>
             <label>Refresh server health (giây)<input id="health-refresh-seconds" type="number" min="5" max="120"></label>
@@ -257,6 +307,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="app.js?v=p204-map-10"></script>
+  <script src="app.js?v=p204-map-12"></script>
 </body>
 </html>
