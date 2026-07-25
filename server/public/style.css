@@ -169,7 +169,11 @@ tbody tr:hover { background: rgba(94, 168, 255, .035); }
 .seat-select { min-width: 92px; padding: .46rem .55rem; font-size: .72rem; }
 
 .alert-center { margin-bottom: 1.25rem; border-color: rgba(251, 113, 133, .3); background: linear-gradient(145deg, rgba(59, 23, 39, .6), rgba(11, 27, 44, .82)); }
-.alert-list { max-height: 430px; overflow: auto; }
+.alert-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: 310px; overflow: auto; }
+.compact-alert { min-width: 0; padding: .7rem .8rem; }
+.compact-alert .alert-message { margin-block: .38rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compact-alert .alert-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alert-repeat-badge { padding: 2px 6px; border-radius: 999px; color: #07111f; background: #f4b75d; font-size: .58rem; font-weight: 900; font-variant-numeric: tabular-nums; }
 .chat-alert { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1rem; align-items: center; padding: 1rem 1.25rem; border-top: 1px solid rgba(251, 113, 133, .12); }
 .chat-alert:first-child { border-top: 0; }
 .chat-alert.urgent { background: rgba(251, 113, 133, .055); }
@@ -1159,6 +1163,7 @@ tbody tr:nth-child(even) { background: rgba(255,255,255,.012); }
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .toolbar { justify-content: stretch; }
   .toolbar .button { flex: 1; }
+  .alert-list { grid-template-columns: 1fr; max-height: 280px; }
   .search-control { min-width: 100%; }
   .filter-control { width: 100%; }
   .chat-dock { right: .5rem; max-width: calc(100vw - 1rem); gap: .4rem; }

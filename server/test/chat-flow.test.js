@@ -71,6 +71,7 @@ test('admin-bound and self-destruct key chat flow', async () => {
       chat_access_mode: 'key_required',
       device_registration_mode: 'open',
       sos_enabled: true,
+      sos_cooldown_seconds: 60,
       password_reporting_enabled: true,
       admin_allowed_ips: '',
       transient_retention_days: 3,
@@ -143,13 +144,22 @@ test('admin-bound and self-destruct key chat flow', async () => {
   });
   assert.equal(response.status, 201);
   assert.equal((await response.json()).accepted, true);
+  response = await request('/api/device/sos', {
+    method: 'POST',
+    headers: deviceHeaders('device-101', 'device-token-101'),
+    body: JSON.stringify({ source: 'startup-duplicate' }),
+  });
+  assert.equal(response.status, 202);
+  assert.equal((await response.json()).deduplicated, true);
 
   response = await adminRequest('/api/admin/chat/alerts');
   const sosAlert = (await response.json()).find((alert) => alert.matched_keyword === 'hotkey-sos');
   assert.ok(sosAlert);
   assert.equal(sosAlert.priority, 'urgent');
-  response = await adminRequest(`/api/admin/chat/alerts/${sosAlert.id}/acknowledge`, {
+  assert.equal(sosAlert.repeat_count, 2);
+  response = await adminRequest('/api/admin/chat/alerts/acknowledge-bulk', {
     method: 'POST',
+    ...json({ ids: [sosAlert.id] }),
   });
   assert.equal(response.status, 200);
 
@@ -478,6 +488,7 @@ test('admin-bound and self-destruct key chat flow', async () => {
       chat_access_mode: 'open',
       device_registration_mode: 'closed',
       sos_enabled: true,
+      sos_cooldown_seconds: 45,
       password_reporting_enabled: true,
       admin_allowed_ips: '',
       transient_retention_days: 2,

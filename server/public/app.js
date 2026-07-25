@@ -7,7 +7,7 @@ const state = {
   settings: {
     dashboard_refresh_seconds: 20, online_threshold_minutes: 5, health_refresh_seconds: 15,
     audit_retention_days: 180, chat_access_mode: 'open', device_registration_mode: 'open',
-    sos_enabled: true, password_reporting_enabled: true, admin_allowed_ips: '', transient_retention_days: 3,
+    sos_enabled: true, sos_cooldown_seconds: 60, password_reporting_enabled: true, admin_allowed_ips: '', transient_retention_days: 3,
     bandwidth_quota_gb: 100, bandwidth_overage_usd_per_gb: 0.09,
   },
 };
@@ -167,6 +167,7 @@ async function fetchSystemSettings() {
   $('#chat-access-mode').value = state.settings.chat_access_mode;
   $('#device-registration-mode').value = state.settings.device_registration_mode;
   $('#sos-enabled').checked = state.settings.sos_enabled;
+  $('#sos-cooldown-seconds').value = state.settings.sos_cooldown_seconds;
   $('#password-reporting-enabled').checked = state.settings.password_reporting_enabled;
   $('#admin-allowed-ips').value = state.settings.admin_allowed_ips || '';
   $('#current-admin-ip').textContent = state.settings.current_admin_ip || '—';
@@ -480,7 +481,7 @@ async function refreshAll({ quiet = false } = {}) {
 
 function renderMetrics() {
   $('#metric-online').textContent = state.devices.filter(isOnline).length;
-  $('#metric-alerts').textContent = state.alerts.length;
+  $('#metric-alerts').textContent = new Set(state.alerts.map((alert) => alert.device_id)).size;
   $('#metric-active').textContent = state.devices.filter(isActive).length;
   $('#metric-pending').textContent = state.devices.filter((device) => !isActive(device)).length;
 }
@@ -644,8 +645,12 @@ function renderDevices() {
       const deviceAlerts = state.alerts.filter((alert) => alert.device_id === device.id);
       if (deviceAlerts.length) {
         const urgent = deviceAlerts.some((alert) => alert.priority === 'urgent');
+        const deviceAlertCount = deviceAlerts.reduce(
+          (total, alert) => total + Math.max(1, Number(alert.repeat_count) || 1),
+          0,
+        );
         const chatCount = element('span', `chat-action-count ${urgent ? 'urgent' : ''}`);
-        chatCount.textContent = deviceAlerts.length > 99 ? '99+' : String(deviceAlerts.length);
+        chatCount.textContent = deviceAlertCount > 99 ? '99+' : String(deviceAlertCount);
         chatButton.append(chatCount);
       }
       actions.append(chatButton);
@@ -730,18 +735,36 @@ function renderAlerts() {
   const panel = $('#alert-panel');
   const list = $('#alert-list');
   list.replaceChildren();
-  panel.hidden = state.alerts.length === 0;
-  $('#alert-count').textContent = state.alerts.length;
-
+  const grouped = new Map();
   state.alerts.forEach((alert) => {
-    const item = element('article', `chat-alert ${alert.priority === 'urgent' ? 'urgent' : ''}`);
+    const current = grouped.get(alert.device_id);
+    const repetitions = Math.max(1, Number(alert.repeat_count) || 1);
+    if (!current) {
+      grouped.set(alert.device_id, {
+        ...alert,
+        ids: [alert.id],
+        eventCount: repetitions,
+      });
+    } else {
+      current.ids.push(alert.id);
+      current.eventCount += repetitions;
+      if (alert.priority === 'urgent') current.priority = 'urgent';
+    }
+  });
+  const alertGroups = [...grouped.values()];
+  panel.hidden = alertGroups.length === 0;
+  $('#alert-count').textContent = alertGroups.length;
+
+  alertGroups.forEach((alert) => {
+    const item = element('article', `chat-alert compact-alert ${alert.priority === 'urgent' ? 'urgent' : ''}`);
     const details = element('div');
     const identity = element('div', 'alert-identity');
     identity.append(element('strong', '', alert.hostname || alert.device_id));
     if (alert.seat_id) identity.append(element('span', 'seat-badge', alert.seat_id));
     identity.append(element('span', `priority-badge ${alert.priority}`, alert.priority === 'urgent' ? 'Khẩn' : 'Tin mới'));
+    if (alert.eventCount > 1) identity.append(element('span', 'alert-repeat-badge', `×${alert.eventCount}`));
     const message = element('p', 'alert-message', alert.body);
-    const createdAt = serverDate(alert.created_at);
+    const createdAt = serverDate(alert.updated_at || alert.created_at);
     const metaParts = [alert.key_label || alert.key_hint || `ID ${alert.device_id}`];
     if (alert.matched_keyword) metaParts.push(`từ khóa “${alert.matched_keyword}”`);
     if (createdAt) metaParts.push(createdAt.toLocaleString('vi-VN'));
@@ -749,7 +772,7 @@ function renderAlerts() {
     details.append(identity, message, meta);
     const actions = element('div', 'alert-actions');
     actions.append(actionButton('Mở chat', 'ghost', () => openBossChat({ id: alert.device_id, hostname: alert.hostname })));
-    actions.append(actionButton('Đã xử lý', 'danger', () => acknowledgeAlert(alert.id)));
+    actions.append(actionButton('Đã xử lý', 'danger', () => acknowledgeAlerts(alert.ids)));
     item.append(details, actions);
     list.append(item);
   });
@@ -813,10 +836,14 @@ function renderMap() {
         desk.append(keyBadge);
       }
       if (deskAlerts.length) {
+        const deskAlertCount = deskAlerts.reduce(
+          (total, alert) => total + Math.max(1, Number(alert.repeat_count) || 1),
+          0,
+        );
         const badge = element('span', `desk-alert-badge ${urgentAlerts.length ? 'urgent' : ''}`);
         badge.append(
           element('span', 'desk-alert-icon', '●'),
-          element('strong', 'desk-alert-count', deskAlerts.length > 99 ? '99+' : String(deskAlerts.length)),
+          element('strong', 'desk-alert-count', deskAlertCount > 99 ? '99+' : String(deskAlertCount)),
         );
         badge.title = sosAlerts.length
           ? `${sosAlerts.length} yêu cầu SOS · ${deskAlerts.length} tin chưa xử lý`
@@ -1394,10 +1421,13 @@ function openBossChat(device) {
   $('#chat-dock').append(windowElement);
 }
 
-async function acknowledgeAlert(id) {
+async function acknowledgeAlerts(ids) {
   try {
-    await api(`/api/admin/chat/alerts/${id}/acknowledge`, { method: 'POST' });
-    state.alerts = state.alerts.filter((alert) => alert.id !== id);
+    await api('/api/admin/chat/alerts/acknowledge-bulk', {
+      method: 'POST', body: JSON.stringify({ ids }),
+    });
+    const acknowledged = new Set(ids);
+    state.alerts = state.alerts.filter((alert) => !acknowledged.has(alert.id));
     renderAlerts();
     renderMap();
     renderMetrics();
@@ -1685,6 +1715,7 @@ $('#system-settings-form').addEventListener('submit', async (event) => {
         chat_access_mode: $('#chat-access-mode').value,
         device_registration_mode: $('#device-registration-mode').value,
         sos_enabled: $('#sos-enabled').checked,
+        sos_cooldown_seconds: Number($('#sos-cooldown-seconds').value),
         password_reporting_enabled: $('#password-reporting-enabled').checked,
         admin_allowed_ips: $('#admin-allowed-ips').value,
       }),

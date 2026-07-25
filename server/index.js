@@ -271,6 +271,8 @@ async function initializeDatabase() {
   await addColumnIfMissing('chat_alerts', 'priority', "TEXT NOT NULL DEFAULT 'normal'");
   await addColumnIfMissing('chat_alerts', 'seat_id', 'TEXT');
   await addColumnIfMissing('chat_alerts', 'key_id', 'INTEGER');
+  await addColumnIfMissing('chat_alerts', 'repeat_count', 'INTEGER NOT NULL DEFAULT 1');
+  await addColumnIfMissing('chat_alerts', 'updated_at', 'DATETIME');
   await dbRun('CREATE INDEX IF NOT EXISTS idx_chat_alerts_active ON chat_alerts(acknowledged, id DESC)');
 
   await dbRun(`CREATE TABLE IF NOT EXISTS audit_logs (
@@ -361,6 +363,7 @@ function auditAction(method, routePath) {
     [/POST \/api\/admin\/chat\/messages$/, 'chat.admin_message'],
     [/DELETE \/api\/admin\/chat\/messages$/, 'chat.emergency_delete'],
     [/POST \/api\/admin\/chat\/alerts\/[^/]+\/acknowledge$/, 'alert.acknowledge'],
+    [/POST \/api\/admin\/chat\/alerts\/acknowledge-bulk$/, 'alert.acknowledge_bulk'],
     [/POST \/api\/admin\/settings\/keywords$/, 'settings.update_keywords'],
     [/POST \/api\/admin\/settings\/system$/, 'settings.update_system'],
     [/POST \/api\/admin\/system\/health\/sample$/, 'system.force_metric_sample'],
@@ -376,6 +379,9 @@ function auditRequest(req, status) {
   // Successful device heartbeats are high-frequency state refreshes, not audit
   // events. Keep new registrations (202) and every failed attempt.
   if (action === 'device.register_or_heartbeat' && status === 200) return;
+  // Repeated startup SOS presses are folded into the active alert and should
+  // not create one audit row per retry.
+  if (action === 'device.sos' && status === 202) return;
   const body = req.body || {};
   const deviceIds = Array.isArray(body.device_ids) ? body.device_ids.slice(0, 50) : undefined;
   const entityId = req.params?.id || body.device_id || body.id || (deviceIds?.length === 1 ? deviceIds[0] : null);
@@ -1255,7 +1261,7 @@ app.get('/api/admin/settings/system', requireAdmin, async (_req, res) => {
     const rows = await dbAll(`SELECT key, value FROM settings WHERE key IN (
       'audit_retention_days', 'health_refresh_seconds', 'dashboard_refresh_seconds',
       'online_threshold_minutes', 'chat_access_mode', 'device_registration_mode',
-      'sos_enabled', 'password_reporting_enabled', 'admin_allowed_ips',
+      'sos_enabled', 'sos_cooldown_seconds', 'password_reporting_enabled', 'admin_allowed_ips',
       'transient_retention_days', 'bandwidth_quota_gb', 'bandwidth_overage_usd_per_gb'
     )`);
     const values = Object.fromEntries(rows.map((row) => [row.key, row.value]));
@@ -1267,6 +1273,7 @@ app.get('/api/admin/settings/system', requireAdmin, async (_req, res) => {
       chat_access_mode: values.chat_access_mode === 'key_required' ? 'key_required' : 'open',
       device_registration_mode: values.device_registration_mode === 'closed' ? 'closed' : 'open',
       sos_enabled: values.sos_enabled !== '0',
+      sos_cooldown_seconds: Math.max(10, Math.min(300, Number(values.sos_cooldown_seconds) || 60)),
       password_reporting_enabled: values.password_reporting_enabled !== '0',
       admin_allowed_ips: values.admin_allowed_ips || '',
       transient_retention_days: Number(values.transient_retention_days) === 2 ? 2 : 3,
@@ -1287,6 +1294,7 @@ app.post('/api/admin/settings/system', requireAdmin, requireSameOrigin, async (r
   const chatAccessMode = req.body.chat_access_mode === 'key_required' ? 'key_required' : 'open';
   const registrationMode = req.body.device_registration_mode === 'closed' ? 'closed' : 'open';
   const sosEnabled = req.body.sos_enabled === false ? '0' : '1';
+  const sosCooldownSeconds = Math.max(10, Math.min(300, Math.round(Number(req.body.sos_cooldown_seconds) || 60)));
   const passwordReporting = req.body.password_reporting_enabled === false ? '0' : '1';
   const transientRetention = Number(req.body.transient_retention_days) === 2 ? 2 : 3;
   const bandwidthQuotaGb = Math.max(0, Math.min(1_000_000, Number(req.body.bandwidth_quota_gb) || 0));
@@ -1319,6 +1327,8 @@ app.post('/api/admin/settings/system', requireAdmin, requireSameOrigin, async (r
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [registrationMode]);
     await dbRun(`INSERT INTO settings (key, value) VALUES ('sos_enabled', ?)
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [sosEnabled]);
+    await dbRun(`INSERT INTO settings (key, value) VALUES ('sos_cooldown_seconds', ?)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(sosCooldownSeconds)]);
     await dbRun(`INSERT INTO settings (key, value) VALUES ('password_reporting_enabled', ?)
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [passwordReporting]);
     await dbRun(`INSERT INTO settings (key, value) VALUES ('admin_allowed_ips', ?)
@@ -1339,6 +1349,7 @@ app.post('/api/admin/settings/system', requireAdmin, requireSameOrigin, async (r
       chat_access_mode: chatAccessMode,
       device_registration_mode: registrationMode,
       sos_enabled: sosEnabled === '1',
+      sos_cooldown_seconds: sosCooldownSeconds,
       password_reporting_enabled: passwordReporting === '1',
       admin_allowed_ips: adminAllowedIps.join(','),
       transient_retention_days: transientRetention,
@@ -1644,6 +1655,27 @@ app.post('/api/device/sos', requireRegisteredDevice, rateLimit('device-sos', 6, 
     if (await settingValue('sos_enabled', '1') === '0') {
       return fail(res, 403, 'SOS đang bị tắt bởi quản trị viên', 'SOS_DISABLED');
     }
+    const cooldownSeconds = Math.max(10, Math.min(300, Number(await settingValue('sos_cooldown_seconds', '60')) || 60));
+    const existingAlert = await dbGet(
+      `SELECT id FROM chat_alerts
+        WHERE device_id = ? AND matched_keyword = 'hotkey-sos' AND acknowledged = 0
+          AND COALESCE(updated_at, created_at) >= datetime('now', ?)
+        ORDER BY id DESC LIMIT 1`,
+      [req.deviceId, `-${cooldownSeconds} seconds`],
+    );
+    if (existingAlert) {
+      await dbRun(
+        'UPDATE chat_alerts SET repeat_count = repeat_count + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [existingAlert.id],
+      );
+      emitAdminEvent('device-sos', {
+        device_id: req.deviceId,
+        seat_id: req.device.seat_id || null,
+        alert_id: existingAlert.id,
+        deduplicated: true,
+      });
+      return res.status(202).json({ accepted: true, deduplicated: true, alert_id: existingAlert.id });
+    }
     const result = await dbRun(
       'INSERT INTO chat_messages (channel, sender_id, recipient_id, body) VALUES (?, ?, ?, ?)',
       ['boss', req.deviceId, req.deviceId, body],
@@ -1774,7 +1806,8 @@ app.get('/api/admin/chat/alerts', requireAdmin, async (_req, res) => {
   try {
     const rows = await dbAll(
       `SELECT a.id, a.message_id, a.device_id, a.matched_keyword, a.priority,
-              a.seat_id, a.key_id, a.acknowledged, a.created_at, m.channel, m.body,
+              a.seat_id, a.key_id, a.acknowledged, a.repeat_count,
+              COALESCE(a.updated_at, a.created_at) AS updated_at, a.created_at, m.channel, m.body,
               COALESCE(d.hostname, a.device_id) AS hostname,
               k.label AS key_label, k.key_hint
          FROM chat_alerts a
@@ -1798,6 +1831,24 @@ app.post('/api/admin/chat/alerts/:id/acknowledge', requireAdmin, requireSameOrig
     if (!result.changes) return fail(res, 404, 'Alert not found');
     emitAdminEvent('alert-acknowledged', { id: alertId });
     res.json({ success: true });
+  } catch (_error) {
+    fail(res, 500, 'Database error');
+  }
+});
+
+app.post('/api/admin/chat/alerts/acknowledge-bulk', requireAdmin, requireSameOrigin, async (req, res) => {
+  const ids = [...new Set((Array.isArray(req.body.ids) ? req.body.ids : [])
+    .map((id) => Math.max(0, Number.parseInt(id, 10) || 0))
+    .filter(Boolean))]
+    .slice(0, 200);
+  if (!ids.length) return fail(res, 400, 'Không có cảnh báo hợp lệ');
+  try {
+    const result = await dbRun(
+      `UPDATE chat_alerts SET acknowledged = 1 WHERE id IN (${ids.map(() => '?').join(',')})`,
+      ids,
+    );
+    emitAdminEvent('alert-acknowledged', { ids, count: result.changes });
+    res.json({ success: true, acknowledged: result.changes });
   } catch (_error) {
     fail(res, 500, 'Database error');
   }

@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07111f">
   <title>RustDesk Kiosk · Trung tâm hỗ trợ</title>
   <meta name="description" content="Bảng điều phối thiết bị và hỗ trợ RustDesk Kiosk P204">
-  <link rel="stylesheet" href="style.css?v=ops-dashboard-9">
+  <link rel="stylesheet" href="style.css?v=ops-dashboard-10">
 </head>
 <body>
   <section id="login-view" class="auth-view">
@@ -325,6 +325,7 @@
             </fieldset>
             <fieldset><div class="settings-section-label"><span>02</span><div><strong>Chat & SOS</strong><small>Quyền gửi dữ liệu từ máy trạm</small></div></div>
             <label class="setting-toggle"><input id="sos-enabled" type="checkbox"> Cho phép nút SOS</label>
+            <label>Gộp SOS trùng trong (giây)<input id="sos-cooldown-seconds" type="number" min="10" max="300" step="5" value="60"><small>Cùng một máy bấm liên tục chỉ tạo một cảnh báo.</small></label>
             <label class="setting-toggle"><input id="password-reporting-enabled" type="checkbox"> Hiển thị mật khẩu RustDesk trên web</label>
             </fieldset>
             <fieldset><div class="settings-section-label"><span>03</span><div><strong>Bảo vệ admin</strong><small>Giới hạn nơi được phép đăng nhập</small></div></div>
@@ -365,6 +366,6 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <div id="chart-tooltip" class="chart-tooltip" role="tooltip" hidden></div>
-  <script src="app.js?v=p204-map-20"></script>
+  <script src="app.js?v=p204-map-21"></script>
 </body>
 </html>
