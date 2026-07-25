@@ -1,8 +1,17 @@
 'use strict';
 
 const $ = (selector) => document.querySelector(selector);
+function savedHealthHistory() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('kiosk-health-history') || '[]');
+    const freshAfter = Date.now() - 12 * 60 * 60 * 1000;
+    return Array.isArray(saved) ? saved.filter((item) => item.measuredAt >= freshAfter).slice(-39) : [];
+  } catch (_error) {
+    return [];
+  }
+}
 const state = {
-  devices: [], alerts: [], keys: [], groups: [], logs: [], healthHistory: [],
+  devices: [], alerts: [], keys: [], groups: [], logs: [], healthHistory: savedHealthHistory(),
   eventSource: null, refreshTimer: null, healthTimer: null,
   settings: {
     dashboard_refresh_seconds: 20, online_threshold_minutes: 5, health_refresh_seconds: 15,
@@ -203,25 +212,46 @@ function renderHealthGauge(selector, value, label, detail, warnAt = 85) {
 
 function renderHealthHistory() {
   const svg = $('#health-history-chart');
+  const bandwidthSvg = $('#bandwidth-history-chart');
   const history = state.healthHistory;
   if (!history.length) return;
   const width = 720;
   const height = 180;
-  const x = (index) => history.length === 1 ? width : (index / (history.length - 1)) * width;
+  const x = (index) => history.length === 1 ? width / 2 : (index / (history.length - 1)) * width;
   const pathFor = (key) => history.map((sample, index) => {
     const y = height - (Math.max(0, Math.min(100, sample[key])) / 100) * height;
     return `${index ? 'L' : 'M'}${x(index).toFixed(1)},${y.toFixed(1)}`;
   }).join(' ');
+  const areaFor = (key) => `M0,${height} ${pathFor(key)} L${width},${height}Z`;
+  const last = history.at(-1);
   svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
   svg.innerHTML = `
-    <g class="chart-grid"><path d="M0 45H720M0 90H720M0 135H720"/></g>
+    <defs><linearGradient id="ram-area" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#8ca8ff" stop-opacity=".2"/><stop offset="1" stop-color="#8ca8ff" stop-opacity="0"/></linearGradient></defs>
+    <g class="chart-grid"><path d="M0 0H720M0 45H720M0 90H720M0 135H720M0 180H720"/></g>
+    <path class="chart-area ram" d="${areaFor('ram')}"/>
     <path class="chart-line cpu" d="${pathFor('cpu')}"/>
     <path class="chart-line ram" d="${pathFor('ram')}"/>
     <path class="chart-line disk" d="${pathFor('disk')}"/>
+    <circle class="chart-dot cpu" cx="${x(history.length - 1)}" cy="${height - last.cpu / 100 * height}" r="4"/>
+    <circle class="chart-dot ram" cx="${x(history.length - 1)}" cy="${height - last.ram / 100 * height}" r="4"/>
+    <circle class="chart-dot disk" cx="${x(history.length - 1)}" cy="${height - last.disk / 100 * height}" r="4"/>
   `;
-  const latest = history.at(-1);
-  $('#network-rate').textContent = latest.networkAvailable
-    ? `↓ ${formatBytes(latest.rxRate)}/s · ↑ ${formatBytes(latest.txRate)}/s`
+  const bandwidthSamples = history.filter((sample) => sample.networkAvailable);
+  const maxRate = Math.max(1, ...bandwidthSamples.flatMap((sample) => [sample.rxRate, sample.txRate]));
+  const bandwidthHeight = 100;
+  const bandwidthPath = (key) => bandwidthSamples.map((sample, index) => {
+    const pointX = bandwidthSamples.length === 1 ? width / 2 : index / (bandwidthSamples.length - 1) * width;
+    const pointY = bandwidthHeight - (sample[key] / maxRate) * bandwidthHeight;
+    return `${index ? 'L' : 'M'}${pointX.toFixed(1)},${pointY.toFixed(1)}`;
+  }).join(' ');
+  bandwidthSvg.setAttribute('viewBox', `0 0 ${width} ${bandwidthHeight}`);
+  bandwidthSvg.innerHTML = bandwidthSamples.length ? `
+    <g class="chart-grid"><path d="M0 0H720M0 50H720M0 100H720"/></g>
+    <path class="chart-line download" d="${bandwidthPath('rxRate')}"/>
+    <path class="chart-line upload" d="${bandwidthPath('txRate')}"/>
+  ` : '<text x="360" y="58" text-anchor="middle">Cần thêm một lần đo để tính tốc độ</text>';
+  $('#network-rate').textContent = last.networkAvailable
+    ? `↓ ${formatBytes(last.rxRate)}/s · ↑ ${formatBytes(last.txRate)}/s`
     : 'Linux VPS sẽ hiển thị sau lần đo thứ hai';
 }
 
@@ -244,6 +274,7 @@ function renderHealth(health) {
     networkAvailable,
   });
   state.healthHistory = state.healthHistory.slice(-40);
+  try { localStorage.setItem('kiosk-health-history', JSON.stringify(state.healthHistory)); } catch (_error) { /* optional cache */ }
   renderHealthGauge('#gauge-cpu', cpuPercent, 'CPU load', `${health.host.cpu_count} lõi · load ${Number(health.host.load_average[0]).toFixed(2)}`);
   renderHealthGauge('#gauge-ram', ramPercent, 'RAM VPS', `${formatBytes(hostMemoryUsed)} / ${formatBytes(health.host.memory_total_bytes)}`);
   renderHealthGauge('#gauge-disk', diskPercent, 'Ổ đĩa', `${formatBytes(diskUsed)} / ${formatBytes(health.host.disk_total_bytes)}`, 90);
@@ -251,8 +282,6 @@ function renderHealth(health) {
   const cards = [
     ['API', health.status === 'ok' ? 'Hoạt động' : 'Có lỗi', health.status === 'ok'],
     ['Thiết bị online', `${health.devices.online || 0}/${health.devices.total || 0}`, true],
-    ['RAM VPS', `${formatBytes(hostMemoryUsed)} / ${formatBytes(health.host.memory_total_bytes)}`, hostMemoryUsed / health.host.memory_total_bytes < .9],
-    ['Ổ đĩa', `${formatBytes(diskUsed)} / ${formatBytes(health.host.disk_total_bytes)}`, diskUsed / health.host.disk_total_bytes < .9],
     ['Cảnh báo mở', health.chat.open_alerts || 0, Number(health.chat.open_alerts) === 0],
     ['Backup', health.backup.cron_enabled ? 'Đang bật' : 'Đang tắt', !health.backup.cron_enabled || health.backup.last_action !== 'backup.failed'],
   ];
@@ -272,11 +301,11 @@ function renderHealth(health) {
   ]);
   fillHealthDetails('#health-data', [
     ['Database', formatBytes(health.database.bytes)], ['SQLite WAL', formatBytes(health.database.wal_bytes)],
-    ['Thiết bị', health.devices.total || 0], ['Tin nhắn', health.chat.messages || 0], ['Audit rows', health.audit.total || 0],
+    ['Tin nhắn đã lưu', health.chat.messages || 0], ['Audit rows', health.audit.total || 0],
   ]);
   fillHealthDetails('#health-services', [
     ['Realtime admin', health.traffic.realtime_admin_connections], ['Rate-limit buckets', health.traffic.rate_limit_buckets],
-    ['Cron backup', health.backup.cron_enabled ? 'Bật' : 'Tắt'], ['Google Drive', health.backup.google_drive_configured ? 'Đã cấu hình' : 'Chưa cấu hình'],
+    ['Google Drive', health.backup.google_drive_configured ? 'Đã cấu hình' : 'Chưa cấu hình'],
     ['Backup cuối', health.backup.last_action ? `${auditLabels[health.backup.last_action] || health.backup.last_action} · ${serverDate(health.backup.last_at)?.toLocaleString('vi-VN') || ''}` : 'Chưa có'],
   ]);
   const failures = $('#health-failure-list');
@@ -1297,6 +1326,22 @@ $('#require-all-keys-btn').before(deviceSortControl);
 deviceSort.addEventListener('change', renderDevices);
 $('#search-input').addEventListener('input', renderDevices);
 $('#status-filter').addEventListener('change', renderDevices);
+$('#settings-preset').addEventListener('change', (event) => {
+  const presets = {
+    balanced: { dashboard: 20, health: 15, online: 5, retention: 180, registration: 'open' },
+    realtime: { dashboard: 5, health: 5, online: 2, retention: 90, registration: 'open' },
+    economy: { dashboard: 60, health: 60, online: 10, retention: 90, registration: 'open' },
+    locked: { dashboard: 20, health: 15, online: 5, retention: 180, registration: 'closed' },
+  };
+  const preset = presets[event.target.value];
+  if (!preset) return;
+  $('#dashboard-refresh-seconds').value = preset.dashboard;
+  $('#health-refresh-seconds').value = preset.health;
+  $('#online-threshold-minutes').value = preset.online;
+  $('#audit-retention-days').value = preset.retention;
+  $('#device-registration-mode').value = preset.registration;
+  notify('Đã áp dụng preset. Bấm Lưu cấu hình để xác nhận.');
+});
 $('#device-group-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   const name = $('#device-group-name').value.trim();

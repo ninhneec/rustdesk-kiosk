@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07111f">
   <title>RustDesk Kiosk · Trung tâm hỗ trợ</title>
   <meta name="description" content="Bảng điều phối thiết bị và hỗ trợ RustDesk Kiosk P204">
-  <link rel="stylesheet" href="style.css?v=ops-dashboard-5">
+  <link rel="stylesheet" href="style.css?v=ops-dashboard-6">
 </head>
 <body>
   <section id="login-view" class="auth-view">
@@ -246,23 +246,39 @@
               <header><div><h3>Xu hướng tài nguyên</h3><small>40 lần đo gần nhất</small></div><strong id="network-rate">Đang đo băng thông…</strong></header>
               <svg id="health-history-chart" role="img" aria-label="Biểu đồ CPU, RAM và ổ đĩa"></svg>
               <div class="chart-legend"><span class="cpu">CPU</span><span class="ram">RAM</span><span class="disk">Ổ đĩa</span></div>
+              <div class="bandwidth-heading"><strong>Băng thông realtime</strong><small>Tự co giãn theo lưu lượng thực tế</small></div>
+              <svg id="bandwidth-history-chart" role="img" aria-label="Biểu đồ download và upload"></svg>
+              <div class="chart-legend"><span class="download">Download</span><span class="upload">Upload</span></div>
             </section>
           </div>
-          <div class="health-columns">
-            <section><h3>Tiến trình</h3><dl id="health-process"></dl></section>
-            <section><h3>Máy chủ</h3><dl id="health-host"></dl></section>
-            <section><h3>Dữ liệu</h3><dl id="health-data"></dl></section>
-            <section><h3>Backup & realtime</h3><dl id="health-services"></dl></section>
-          </div>
+          <details class="health-technical">
+            <summary>Thông số kỹ thuật chi tiết</summary>
+            <div class="health-columns">
+              <section><h3>Tiến trình</h3><dl id="health-process"></dl></section>
+              <section><h3>Máy chủ</h3><dl id="health-host"></dl></section>
+              <section><h3>Dữ liệu</h3><dl id="health-data"></dl></section>
+              <section><h3>Backup & realtime</h3><dl id="health-services"></dl></section>
+            </div>
+          </details>
           <div class="health-failures">
             <h3>Lỗi gần nhất</h3>
             <div id="health-failure-list"></div>
           </div>
         </article>
-        <article class="panel">
+        <article class="panel health-settings-panel">
           <div class="panel-heading"><div><p class="eyebrow">SETTINGS</p><h2>Cấu hình vận hành</h2><small class="map-note">Thay đổi trực tiếp, không cần SSH vào VPS.</small></div></div>
           <form id="system-settings-form" class="stack-form settings-groups">
-            <div class="settings-section-label"><span>01</span><div><strong>Quyền truy cập</strong><small>Cách máy mới tham gia hệ thống</small></div></div>
+            <div class="settings-preset">
+              <div><strong>Cấu hình nhanh</strong><small>Chọn cách vận hành, sau đó vẫn có thể chỉnh từng mục.</small></div>
+              <select id="settings-preset" aria-label="Chọn cấu hình nhanh">
+                <option value="">Tùy chỉnh hiện tại</option>
+                <option value="balanced">Cân bằng · khuyên dùng</option>
+                <option value="realtime">Realtime · cập nhật nhanh</option>
+                <option value="economy">Tiết kiệm băng thông</option>
+                <option value="locked">Khóa chặt thiết bị mới</option>
+              </select>
+            </div>
+            <fieldset><div class="settings-section-label"><span>01</span><div><strong>Quyền truy cập</strong><small>Cách máy mới tham gia hệ thống</small></div></div>
             <label>Key mode
               <select id="chat-access-mode">
                 <option value="open">Mở mặc định · không cần duyệt key</option>
@@ -275,19 +291,23 @@
                 <option value="closed">Khóa toàn bộ máy mới</option>
               </select>
             </label>
-            <div class="settings-section-label"><span>02</span><div><strong>Chat & SOS</strong><small>Quyền gửi dữ liệu từ máy trạm</small></div></div>
+            </fieldset>
+            <fieldset><div class="settings-section-label"><span>02</span><div><strong>Chat & SOS</strong><small>Quyền gửi dữ liệu từ máy trạm</small></div></div>
             <label class="setting-toggle"><input id="sos-enabled" type="checkbox"> Cho phép nút SOS</label>
             <label class="setting-toggle"><input id="password-reporting-enabled" type="checkbox"> Hiển thị mật khẩu RustDesk trên web</label>
-            <div class="settings-section-label"><span>03</span><div><strong>Bảo vệ admin</strong><small>Giới hạn nơi được phép đăng nhập</small></div></div>
+            </fieldset>
+            <fieldset><div class="settings-section-label"><span>03</span><div><strong>Bảo vệ admin</strong><small>Giới hạn nơi được phép đăng nhập</small></div></div>
             <label>IP được đăng nhập admin
               <textarea id="admin-allowed-ips" rows="3" placeholder="Để trống = cho mọi IP&#10;Ví dụ: 1.2.3.4, 5.6.7.8"></textarea>
               <small>IP hiện tại: <strong id="current-admin-ip">—</strong></small>
             </label>
-            <div class="settings-section-label"><span>04</span><div><strong>Hiệu năng & lưu trữ</strong><small>Cân bằng độ realtime và tải VPS</small></div></div>
+            </fieldset>
+            <fieldset><div class="settings-section-label"><span>04</span><div><strong>Hiệu năng & lưu trữ</strong><small>Cân bằng độ realtime và tải VPS</small></div></div>
             <label>Refresh dashboard (giây)<input id="dashboard-refresh-seconds" type="number" min="5" max="120"></label>
             <label>Máy được tính online trong (phút)<input id="online-threshold-minutes" type="number" min="1" max="30"></label>
             <label>Refresh server health (giây)<input id="health-refresh-seconds" type="number" min="5" max="120"></label>
             <label>Giữ audit log (ngày)<input id="audit-retention-days" type="number" min="7" max="365"></label>
+            </fieldset>
             <button class="button primary wide" type="submit">Lưu cấu hình</button>
             <span id="system-settings-message" class="form-message"></span>
           </form>
@@ -307,6 +327,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="app.js?v=p204-map-12"></script>
+  <script src="app.js?v=p204-map-13"></script>
 </body>
 </html>
