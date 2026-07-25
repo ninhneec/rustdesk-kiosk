@@ -209,6 +209,10 @@ function auditRequest(req, status) {
   const routePath = req.route?.path
     ? `${req.baseUrl || ''}${req.route.path}`.replace(/:([A-Za-z_]+)/g, (_match, name) => req.params?.[name] || `:${name}`)
     : req.path;
+  const action = auditAction(req.method, routePath);
+  // Successful device heartbeats are high-frequency state refreshes, not audit
+  // events. Keep new registrations (202) and every failed attempt.
+  if (action === 'device.register_or_heartbeat' && status === 200) return;
   const body = req.body || {};
   const deviceIds = Array.isArray(body.device_ids) ? body.device_ids.slice(0, 50) : undefined;
   const entityId = req.params?.id || body.device_id || body.id || (deviceIds?.length === 1 ? deviceIds[0] : null);
@@ -233,14 +237,14 @@ function auditRequest(req, status) {
       [
         actorType,
         actorId || null,
-        auditAction(req.method, routePath),
+        action,
         entityId ? (routePath.includes('device-key') ? 'key' : routePath.includes('alert') ? 'alert' : 'device') : null,
         entityId ? String(entityId) : null,
         status < 400 ? 1 : 0,
         JSON.stringify(details),
       ],
     ))
-    .then(() => emitAdminEvent('audit-created', { action: auditAction(req.method, routePath) }))
+    .then(() => emitAdminEvent('audit-created', { action }))
     .catch((error) => console.error('Could not write audit log:', error));
 }
 
