@@ -153,7 +153,7 @@ void runStandaloneGlobalChat() async {
     await windowManager.focus();
     // The support panel is a lightweight glass overlay. RustDesk's service and
     // remote-control core keep running in the background; the main window stays hidden.
-    await windowManager.setOpacity(0.96);
+    await windowManager.setOpacity(0.98);
   });
 }
 

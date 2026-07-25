@@ -378,16 +378,8 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
                 borderRadius: BorderRadius.circular(22),
                 child: Container(
                   decoration: BoxDecoration(
-                    color: const Color(0xA8FFFFFF),
-                    border: Border.all(color: const Color(0xE8FFFFFF)),
-                    borderRadius: BorderRadius.circular(22),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x1A0B2948),
-                        blurRadius: 12,
-                        offset: Offset(0, 5),
-                      ),
-                    ],
+                      color: const Color(0x52FFFFFF),
+                      borderRadius: BorderRadius.circular(22),
                   ),
                   child: Column(
                     children: [
@@ -414,9 +406,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
         height: 48,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: const BoxDecoration(
-          color: Color(0x62FFFFFF),
-          border:
-              Border(bottom: BorderSide(color: Color(0xB8FFFFFF), width: 1)),
+          color: Color(0x26FFFFFF),
         ),
         child: Row(
           children: [
@@ -434,9 +424,9 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
               height: 30,
               padding: const EdgeInsets.symmetric(horizontal: 8),
               decoration: BoxDecoration(
-                color: const Color(0x70FFFFFF),
+                color: const Color(0x42FFFFFF),
                 borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: const Color(0xC8FFFFFF)),
+                border: Border.all(color: const Color(0x88FFFFFF)),
               ),
               child: DropdownButtonHideUnderline(
                 child: DropdownButton<String>(
@@ -652,10 +642,10 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color:
-              isOutgoing ? const Color(0xDD2578D4) : const Color(0xA8FFFFFF),
+              isOutgoing ? const Color(0xD02578D4) : const Color(0x68FFFFFF),
           border: isOutgoing
               ? null
-              : Border.all(color: const Color(0xD8FFFFFF)),
+              : Border.all(color: const Color(0x8AFFFFFF)),
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(12),
             topRight: const Radius.circular(12),
@@ -697,8 +687,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: const BoxDecoration(
-        color: Color(0x52FFFFFF),
-        border: Border(top: BorderSide(color: Color(0xB8FFFFFF), width: 1)),
+        color: Color(0x24FFFFFF),
       ),
       child: Row(
         children: [
@@ -715,7 +704,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
                 contentPadding:
                     const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 filled: true,
-                fillColor: const Color(0x82FFFFFF),
+                fillColor: const Color(0x52FFFFFF),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(20),
                   borderSide: BorderSide.none,
@@ -723,7 +712,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(20),
                   borderSide:
-                      const BorderSide(color: Color(0xC8FFFFFF), width: 1),
+                      const BorderSide(color: Color(0x88FFFFFF), width: 1),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(20),
