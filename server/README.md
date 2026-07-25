@@ -4,7 +4,7 @@ Backend này độc lập hoàn toàn với `hbbs`/`hbbr`:
 
 - Remote desktop mặc định vẫn dùng host public của RustDesk.
 - Chat, dashboard, device key và cảnh báo chạy trên VPS riêng.
-- `ADMIN_TOKEN` chỉ dùng để đăng nhập web, không nhúng vào client.
+- Dashboard đăng nhập bằng mật khẩu admin do người triển khai tự đặt. Server chỉ lưu hash `scrypt`, không lưu mật khẩu thô và không dùng `ADMIN_TOKEN`.
 - Mỗi máy có chat token riêng; quyền chat được cấp bằng key theo máy/chỗ ngồi.
 
 ## Chạy local
@@ -12,7 +12,7 @@ Backend này độc lập hoàn toàn với `hbbs`/`hbbr`:
 ```bash
 cd server
 npm ci
-ADMIN_TOKEN='a-long-random-admin-token' \
+ADMIN_PASSWORD_HASH='scrypt$base64url-salt$base64url-hash' \
 CHAT_SESSION_SECRET='a-separate-long-random-secret' \
 PORT=3000 npm start
 ```
@@ -45,7 +45,21 @@ Hoặc chạy trực tiếp trên VPS để kéo bản mới nhất từ GitHub:
 curl -fsSL https://raw.githubusercontent.com/ninhneec/rustdesk-kiosk/master/server/deploy_chat_only.sh | sudo bash
 ```
 
-Script lưu database tại `/var/lib/rustdesk-kiosk-chat/devices.db` và giữ secret tại `/etc/rustdesk-kiosk-chat.env`, vì vậy deploy lại không làm đổi mã admin hoặc mất key/ghế.
+Script lưu database tại `/var/lib/rustdesk-kiosk-chat/devices.db` và giữ secret/hash mật khẩu tại `/etc/rustdesk-kiosk-chat.env`, vì vậy deploy lại không mất key/ghế.
+
+Lần triển khai đầu, đặt mật khẩu bằng biến môi trường (không ghi mật khẩu vào file):
+
+```bash
+sudo ADMIN_PASSWORD='mat-khau-rieng-cua-ban' bash server/deploy_chat_only.sh
+```
+
+Backup Google Drive chạy mỗi ngày lúc 02:17. Liên kết OAuth một lần bằng `sudo rclone config`, tạo remote tên `gdrive`, sau đó thử:
+
+```bash
+sudo /usr/local/sbin/rustdesk-kiosk-backup
+```
+
+Các bản backup được upload vào `gdrive:rustdesk-kiosk-backups`; bản local cũ hơn 7 ngày được tự dọn.
 
 Nên đặt Node.js sau Nginx/Caddy HTTPS và chỉ cho public truy cập cổng 80/443. Client hiện trỏ chat tới `http://ad.apndocs.site:3000`; khi có TLS hãy đổi hằng `_apiServer` và URL trong `src/server.rs` sang `https://...`.
 

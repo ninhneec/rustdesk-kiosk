@@ -5,8 +5,8 @@ const sqlite3 = require('sqlite3').verbose();
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
-const adminToken = process.env.ADMIN_TOKEN || '';
-const sessionSecret = process.env.CHAT_SESSION_SECRET || adminToken;
+const adminPasswordHash = process.env.ADMIN_PASSWORD_HASH || '';
+const sessionSecret = process.env.CHAT_SESSION_SECRET || '';
 const databasePath = process.env.DATABASE_PATH || path.join(__dirname, 'devices.db');
 const isProduction = process.env.NODE_ENV === 'production';
 const sessionCookieName = 'kiosk_admin_session';
@@ -22,7 +22,7 @@ app.disable('x-powered-by');
 app.set('trust proxy', 1);
 app.use((_req, res, next) => {
   res.set({
-    'Content-Security-Policy': "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+    'Content-Security-Policy': "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; frame-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'self'",
     'Referrer-Policy': 'no-referrer',
     'X-Content-Type-Options': 'nosniff',
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
@@ -209,6 +209,19 @@ function safeEqual(left, right) {
   return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
 }
 
+function verifyAdminPassword(password) {
+  const parts = adminPasswordHash.split('$');
+  if (parts.length !== 3 || parts[0] !== 'scrypt') return false;
+  try {
+    const salt = Buffer.from(parts[1], 'base64url');
+    const expected = Buffer.from(parts[2], 'base64url');
+    const actual = crypto.scryptSync(password, salt, expected.length);
+    return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+  } catch (_error) {
+    return false;
+  }
+}
+
 function hashDeviceKey(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
@@ -257,7 +270,7 @@ function validSession(value) {
 }
 
 function requireAdmin(req, res, next) {
-  if (!adminToken || !sessionSecret) return fail(res, 503, 'Admin access is not configured');
+  if (!adminPasswordHash || !sessionSecret) return fail(res, 503, 'Admin access is not configured');
   if (!validSession(parseCookies(req)[sessionCookieName])) return fail(res, 401, 'Admin login required');
   next();
 }
@@ -386,8 +399,8 @@ app.get('/api/health', (_req, res) => {
 });
 
 app.post('/api/admin/session', rateLimit('admin-login', 8, 15 * 60_000), (req, res) => {
-  const suppliedToken = text(req.body.token, 512) || '';
-  if (!adminToken || !safeEqual(adminToken, suppliedToken)) return fail(res, 401, 'Sai mã quản trị');
+  const suppliedPassword = text(req.body.password, 512) || '';
+  if (!adminPasswordHash || !verifyAdminPassword(suppliedPassword)) return fail(res, 401, 'Sai mật khẩu quản trị');
   const expiresAt = Date.now() + sessionDurationSeconds * 1000;
   const cookie = [
     `${sessionCookieName}=${encodeURIComponent(signSession(expiresAt))}`,
@@ -973,7 +986,7 @@ async function startServer(listenPort = port) {
       const address = httpServer.address();
       console.log(`RustDesk kiosk API listening on port ${address.port}`);
       console.log(`Chat alert keywords: ${alertKeywords.join(', ')}`);
-      if (!adminToken) console.warn('ADMIN_TOKEN is missing: admin dashboard is locked.');
+      if (!adminPasswordHash) console.warn('ADMIN_PASSWORD_HASH is missing: admin dashboard is locked.');
       resolve(httpServer);
     });
   });

@@ -8,7 +8,10 @@ const test = require('node:test');
 
 const tempDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'rustdesk-chat-test-'));
 process.env.DATABASE_PATH = path.join(tempDirectory, 'test.db');
-process.env.ADMIN_TOKEN = 'integration-admin-token';
+const adminPassword = 'integration-admin-password';
+const adminSalt = Buffer.from('integration-admin-salt');
+const adminHash = require('node:crypto').scryptSync(adminPassword, adminSalt, 32);
+process.env.ADMIN_PASSWORD_HASH = `scrypt$${adminSalt.toString('base64url')}$${adminHash.toString('base64url')}`;
 process.env.CHAT_SESSION_SECRET = 'integration-session-secret';
 process.env.NODE_ENV = 'test';
 
@@ -53,7 +56,7 @@ test('admin-bound and self-destruct key chat flow', async () => {
 
   response = await request('/api/admin/session', {
     method: 'POST',
-    ...json({ token: process.env.ADMIN_TOKEN }),
+    ...json({ password: adminPassword }),
   });
   assert.equal(response.status, 200);
   adminCookie = response.headers.get('set-cookie').split(';')[0];

@@ -2,6 +2,7 @@
 
 const $ = (selector) => document.querySelector(selector);
 const state = { devices: [], alerts: [], keys: [], eventSource: null, refreshTimer: null };
+const chatWindows = new Map();
 const loginView = $('#login-view');
 const appView = $('#app');
 const toast = $('#toast');
@@ -10,7 +11,7 @@ const mapView = {
   scale: 1,
   x: 0,
   y: 0,
-  minScale: 0.55,
+  minScale: 0.22,
   maxScale: 2.2,
   initialized: false,
   rendered: false,
@@ -147,9 +148,15 @@ function renderDevices() {
   const body = $('#device-list');
   body.replaceChildren();
   const query = $('#search-input').value.trim().toLocaleLowerCase('vi');
+  const statusFilter = $('#status-filter').value;
   const devices = state.devices.filter((device) => {
     const searchable = `${device.hostname || ''} ${device.id} ${device.seat_id || ''} ${device.key_label || ''}`.toLocaleLowerCase('vi');
-    return searchable.includes(query);
+    const matchesStatus = statusFilter === 'all'
+      || (statusFilter === 'online' && isOnline(device))
+      || (statusFilter === 'pending' && !isActive(device))
+      || (statusFilter === 'forced' && Number(device.key_entry_required) === 1)
+      || (statusFilter === 'active' && isActive(device));
+    return searchable.includes(query) && matchesStatus;
   });
   if (!devices.length) {
     const row = element('tr');
@@ -625,10 +632,53 @@ async function revokeKey(id) {
 }
 
 function openBossChat(device) {
+  const existing = chatWindows.get(device.id);
+  if (existing) {
+    existing.classList.remove('minimized');
+    existing.classList.add('attention');
+    setTimeout(() => existing.classList.remove('attention'), 500);
+    return;
+  }
   const url = new URL('/boss-chat.html', window.location.origin);
   url.searchParams.set('device_id', device.id);
   url.searchParams.set('hostname', device.hostname || device.id);
-  window.open(url, `chat-${device.id}`, 'popup,width=430,height=650');
+  const windowElement = element('article', 'chat-window');
+  const header = element('header', 'chat-window-header');
+  const identity = element('button', 'chat-window-identity');
+  identity.type = 'button';
+  identity.title = 'Thu nhỏ hoặc mở rộng';
+  identity.append(element('i'), element('span', '', device.hostname || device.id));
+  const controls = element('div', 'chat-window-controls');
+  const popout = element('button', '', '↗');
+  popout.type = 'button';
+  popout.title = 'Mở thành cửa sổ riêng';
+  const minimize = element('button', '', '−');
+  minimize.type = 'button';
+  minimize.title = 'Thu nhỏ';
+  const close = element('button', '', '×');
+  close.type = 'button';
+  close.title = 'Đóng chat';
+  controls.append(popout, minimize, close);
+  header.append(identity, controls);
+  const frame = document.createElement('iframe');
+  frame.src = url;
+  frame.title = `Chat với ${device.hostname || device.id}`;
+  frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-same-origin');
+  windowElement.append(header, frame);
+  const toggle = () => windowElement.classList.toggle('minimized');
+  identity.addEventListener('click', toggle);
+  minimize.addEventListener('click', toggle);
+  popout.addEventListener('click', () => {
+    window.open(url, `chat-${device.id}`, 'popup,width=430,height=650');
+    chatWindows.delete(device.id);
+    windowElement.remove();
+  });
+  close.addEventListener('click', () => {
+    chatWindows.delete(device.id);
+    windowElement.remove();
+  });
+  chatWindows.set(device.id, windowElement);
+  $('#chat-dock').append(windowElement);
 }
 
 async function acknowledgeAlert(id) {
@@ -723,8 +773,8 @@ $('#login-form').addEventListener('submit', async (event) => {
   button.disabled = true;
   $('#login-error').textContent = '';
   try {
-    await api('/api/admin/session', { method: 'POST', body: JSON.stringify({ token: $('#admin-token').value }) });
-    $('#admin-token').value = '';
+    await api('/api/admin/session', { method: 'POST', body: JSON.stringify({ password: $('#admin-password').value }) });
+    $('#admin-password').value = '';
     showDashboard();
     await fetchKeywords();
   } catch (error) { $('#login-error').textContent = error.message; }
@@ -746,7 +796,22 @@ $('#hero-refresh-btn').addEventListener('click', () => refreshAll());
 $('#require-all-keys-btn').addEventListener('click', () => requireNewKeys());
 $('#cancel-all-keys-btn').addEventListener('click', () => cancelKeyRequirement());
 $('#search-input').addEventListener('input', renderDevices);
+$('#status-filter').addEventListener('change', renderDevices);
 document.querySelectorAll('.tab-button').forEach((button) => button.addEventListener('click', () => switchTab(button.dataset.tab)));
+
+document.addEventListener('keydown', (event) => {
+  if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+  const editing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
+  if (event.key === '/' && !editing && !appView.hidden) {
+    event.preventDefault();
+    switchTab('devices');
+    $('#search-input').focus();
+  } else if (event.key === 'Escape' && $('#seat-modal').open) {
+    $('#seat-modal').close();
+  } else if (!editing && ['1', '2', '3', '4'].includes(event.key)) {
+    switchTab(['devices', 'map', 'keys', 'settings'][Number(event.key) - 1]);
+  }
+});
 
 $('#key-mode').addEventListener('change', () => {
   const oneTime = $('#key-mode').value === 'one_time';

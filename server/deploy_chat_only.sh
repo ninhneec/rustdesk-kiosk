@@ -15,7 +15,7 @@ ENV_FILE="/etc/rustdesk-kiosk-chat.env"
 
 echo "[1/5] Cài Node.js và công cụ triển khai"
 apt-get update
-apt-get install -y curl git openssl ufw
+apt-get install -y curl git openssl ufw sqlite3 rclone
 if ! command -v node >/dev/null 2>&1; then
   curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
   apt-get install -y nodejs
@@ -35,20 +35,44 @@ fi
 echo "[3/5] Chuẩn bị dữ liệu và secret bền vững"
 install -d -m 750 "${DATA_DIR}"
 if [ ! -f "${ENV_FILE}" ]; then
-  ADMIN_TOKEN="$(openssl rand -hex 32)"
   CHAT_SESSION_SECRET="$(openssl rand -hex 48)"
   umask 077
   cat > "${ENV_FILE}" <<EOF
-ADMIN_TOKEN=${ADMIN_TOKEN}
 CHAT_SESSION_SECRET=${CHAT_SESSION_SECRET}
 DATABASE_PATH=${DATA_DIR}/devices.db
 PORT=3000
 NODE_ENV=production
+RCLONE_REMOTE=gdrive:rustdesk-kiosk-backups
 EOF
   chmod 600 "${ENV_FILE}"
-  echo "Đã tạo secret mới tại ${ENV_FILE}"
+  echo "Đã tạo cấu hình mới tại ${ENV_FILE}"
 else
-  echo "Giữ nguyên secret hiện có tại ${ENV_FILE}"
+  sed -i '/^ADMIN_TOKEN=/d' "${ENV_FILE}"
+  echo "Giữ nguyên secret hiện có và đã loại bỏ ADMIN_TOKEN"
+fi
+
+if ! grep -q '^ADMIN_PASSWORD_HASH=' "${ENV_FILE}"; then
+  if [ -z "${ADMIN_PASSWORD:-}" ]; then
+    if [ ! -t 0 ]; then
+      echo "Thiếu mật khẩu. Chạy lại với: sudo ADMIN_PASSWORD='mat-khau-cua-ban' bash deploy_chat_only.sh"
+      exit 1
+    fi
+    read -r -s -p "Đặt mật khẩu quản trị: " ADMIN_PASSWORD
+    echo
+    read -r -s -p "Nhập lại mật khẩu: " ADMIN_PASSWORD_CONFIRM
+    echo
+    if [ "${ADMIN_PASSWORD}" != "${ADMIN_PASSWORD_CONFIRM}" ]; then
+      echo "Hai mật khẩu không khớp"
+      exit 1
+    fi
+  fi
+  if [ "${#ADMIN_PASSWORD}" -lt 10 ]; then
+    echo "Mật khẩu quản trị phải có ít nhất 10 ký tự"
+    exit 1
+  fi
+  ADMIN_PASSWORD_HASH="$(ADMIN_PASSWORD="${ADMIN_PASSWORD}" node -e "const c=require('crypto');const s=c.randomBytes(16);const h=c.scryptSync(process.env.ADMIN_PASSWORD,s,32);process.stdout.write('scrypt$'+s.toString('base64url')+'$'+h.toString('base64url'))")"
+  printf 'ADMIN_PASSWORD_HASH=%s\n' "${ADMIN_PASSWORD_HASH}" >> "${ENV_FILE}"
+  unset ADMIN_PASSWORD ADMIN_PASSWORD_CONFIRM ADMIN_PASSWORD_HASH
 fi
 
 echo "[4/5] Cài dependency và khởi động bằng PM2"
@@ -63,11 +87,18 @@ pm2 start index.js --name kiosk-chat --update-env
 pm2 save
 pm2 startup systemd -u root --hp /root >/dev/null 2>&1 || true
 
+install -m 750 "${SERVER_DIR}/backup_to_gdrive.sh" /usr/local/sbin/rustdesk-kiosk-backup
+cat > /etc/cron.d/rustdesk-kiosk-backup <<'EOF'
+17 2 * * * root set -a; . /etc/rustdesk-kiosk-chat.env; set +a; /usr/local/sbin/rustdesk-kiosk-backup >> /var/log/rustdesk-kiosk-backup.log 2>&1
+EOF
+chmod 644 /etc/cron.d/rustdesk-kiosk-backup
+
 echo "[5/5] Cấu hình tường lửa"
 ufw allow 22/tcp
 ufw allow 3000/tcp
 ufw --force enable
 
 echo "Hoàn tất. Dashboard: http://<IP_VPS>:3000"
-echo "ADMIN_TOKEN: $(sed -n 's/^ADMIN_TOKEN=//p' "${ENV_FILE}")"
+echo "Dashboard dùng mật khẩu quản trị bạn đã đặt; không còn ADMIN_TOKEN."
+echo "Để bật backup Google Drive: sudo rclone config (tạo remote tên gdrive), rồi chạy sudo /usr/local/sbin/rustdesk-kiosk-backup"
 echo "Khuyến nghị đặt port 3000 sau reverse proxy HTTPS và chỉ mở 80/443."

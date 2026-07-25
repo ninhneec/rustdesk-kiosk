@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#07111f">
   <title>RustDesk Kiosk · Trung tâm hỗ trợ</title>
-  <link rel="stylesheet" href="style.css?v=p204-map-8">
+  <meta name="description" content="Bảng điều phối thiết bị và hỗ trợ RustDesk Kiosk P204">
+  <link rel="stylesheet" href="style.css?v=ops-dashboard-1">
 </head>
 <body>
   <section id="login-view" class="auth-view">
@@ -14,8 +15,8 @@
       <p class="eyebrow">RUSTDESK KIOSK</p>
       <h1>Trung tâm hỗ trợ</h1>
       <p class="auth-copy">Đăng nhập để quản lý máy, key truy cập và cảnh báo chat theo thời gian thực.</p>
-      <label for="admin-token">Mã quản trị</label>
-      <input id="admin-token" name="token" type="password" autocomplete="current-password" required autofocus>
+      <label for="admin-password">Mật khẩu quản trị</label>
+      <input id="admin-password" name="password" type="password" autocomplete="current-password" required autofocus>
       <button class="button primary wide" type="submit">Đăng nhập</button>
       <p id="login-error" class="form-message danger" role="alert"></p>
     </form>
@@ -34,14 +35,35 @@
       </div>
     </header>
 
-    <main class="workspace">
+    <div class="dashboard-layout">
+      <aside class="sidebar" aria-label="Điều hướng quản trị">
+        <div class="sidebar-context">
+          <span class="context-dot"></span>
+          <div><strong>P204</strong><small>Phòng máy đang quản lý</small></div>
+        </div>
+        <nav class="section-tabs" aria-label="Khu vực quản lý">
+          <button class="tab-button active" data-tab="devices" type="button"><span aria-hidden="true">◫</span><b>Thiết bị</b><small>Máy và trạng thái</small></button>
+          <button class="tab-button" data-tab="map" type="button"><span aria-hidden="true">⌘</span><b>Sơ đồ phòng</b><small>36 chỗ ngồi</small></button>
+          <button class="tab-button" data-tab="keys" type="button"><span aria-hidden="true">◇</span><b>Key truy cập</b><small>Cấp và thu hồi</small></button>
+          <button class="tab-button" data-tab="settings" type="button"><span aria-hidden="true">⚙</span><b>Cảnh báo</b><small>Từ khóa ưu tiên</small></button>
+        </nav>
+        <div class="sidebar-help">
+          <span>Hệ thống hỗ trợ</span>
+          <p>Tin nhắn mới sẽ xuất hiện tức thời ở đầu màn hình.</p>
+        </div>
+      </aside>
+
+      <main id="main-content" class="workspace">
       <section class="hero">
         <div>
-          <p class="eyebrow">PHÒNG MÁY · P204</p>
-          <h1>Điều phối hỗ trợ, ngay khi có tin nhắn.</h1>
-          <p>Máy tự đăng ký. Admin cấp key theo thiết bị hoặc chỗ ngồi; mọi tin nhắn đều nổi cảnh báo trên web.</p>
+          <p class="eyebrow">TRUNG TÂM ĐIỀU PHỐI · P204</p>
+          <h1>Chào admin, phòng máy đang được giám sát.</h1>
+          <p>Xem máy cần hỗ trợ, cấp quyền chat và kết nối RustDesk từ một nơi.</p>
         </div>
-        <button id="hero-refresh-btn" class="button primary" type="button">Làm mới dữ liệu</button>
+        <div class="hero-actions">
+          <span class="sync-note"><i></i>Dữ liệu thời gian thực</span>
+          <button id="hero-refresh-btn" class="button primary" type="button">Làm mới</button>
+        </div>
       </section>
 
       <section class="metrics" aria-label="Tổng quan">
@@ -59,18 +81,20 @@
         <div id="alert-list" class="alert-list"></div>
       </section>
 
-      <nav class="section-tabs" aria-label="Khu vực quản lý">
-        <button class="tab-button active" data-tab="devices" type="button">Thiết bị</button>
-        <button class="tab-button" data-tab="map" type="button">Sơ đồ phòng</button>
-        <button class="tab-button" data-tab="keys" type="button">Key truy cập</button>
-        <button class="tab-button" data-tab="settings" type="button">Cảnh báo</button>
-      </nav>
-
       <section id="tab-devices" class="tab-panel panel">
         <div class="panel-heading toolbar-heading">
           <div><p class="eyebrow">THIẾT BỊ</p><h2>Máy đã đăng ký</h2></div>
           <div class="toolbar">
             <label class="search-control"><span aria-hidden="true">⌕</span><input id="search-input" type="search" placeholder="Tìm hostname, ID, ghế…"></label>
+            <label class="filter-control" aria-label="Lọc trạng thái">
+              <select id="status-filter">
+                <option value="all">Tất cả trạng thái</option>
+                <option value="online">Đang online</option>
+                <option value="pending">Chờ kích hoạt</option>
+                <option value="forced">Đang bị ép key</option>
+                <option value="active">Đã kích hoạt</option>
+              </select>
+            </label>
             <button id="require-all-keys-btn" class="button danger compact" type="button">Ép nhập key toàn bộ</button>
             <button id="cancel-all-keys-btn" class="button ghost compact" type="button">Gỡ ép toàn bộ</button>
             <button id="refresh-btn" class="button ghost compact" type="button">Làm mới</button>
@@ -138,8 +162,11 @@
           <div class="form-actions"><button class="button primary" type="submit">Lưu cấu hình</button><span id="settings-message" class="form-message"></span></div>
         </form>
       </section>
-    </main>
+      </main>
+    </div>
   </div>
+
+  <section id="chat-dock" class="chat-dock" aria-label="Các cuộc chat đang mở"></section>
 
   <dialog id="seat-modal" class="modal-card">
     <form method="dialog" class="modal-close-row"><button class="icon-button" aria-label="Đóng">×</button></form>
