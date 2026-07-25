@@ -259,4 +259,41 @@ test('admin-bound and self-destruct key chat flow', async () => {
     headers: deviceHeaders('device-recovery', 'new-device-token'),
   });
   assert.equal(response.status, 403);
+
+  response = await request('/api/device/save-password', {
+    method: 'POST',
+    ...json({
+      id: 'device-101', hostname: 'Seat client',
+      pass: 'active-temporary-proof', chat_token: 'device-token-101',
+    }),
+  });
+  assert.equal(response.status, 200);
+  response = await request('/api/device/save-password', {
+    method: 'POST',
+    ...json({
+      id: 'device-101', hostname: 'Seat client',
+      pass: 'wrong-proof', chat_token: 'rotated-device-token',
+    }),
+  });
+  assert.equal(response.status, 409);
+  response = await request('/api/device/save-password', {
+    method: 'POST',
+    ...json({
+      id: 'device-101', hostname: 'Seat client',
+      pass: 'active-temporary-proof', chat_token: 'rotated-device-token',
+    }),
+  });
+  assert.equal(response.status, 200);
+  response = await request('/api/chat/messages?channel=boss', {
+    headers: deviceHeaders('device-101', 'device-token-101'),
+  });
+  assert.equal(response.status, 401);
+  response = await request('/api/chat/messages?channel=boss', {
+    headers: deviceHeaders('device-101', 'rotated-device-token'),
+  });
+  assert.equal(response.status, 200);
+  response = await adminRequest('/api/admin/devices');
+  const recoveredActiveDevice = (await response.json()).find((device) => device.id === 'device-101');
+  assert.equal(recoveredActiveDevice.seat_id, 'M01');
+  assert.equal(recoveredActiveDevice.key_entry_required, 0);
 });

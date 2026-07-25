@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -61,6 +60,10 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
   bool _keyEntryRequired = false;
   bool _showActivationField = false;
   bool _isActivating = false;
+  bool _isWindowActive = true;
+  bool _refreshInFlight = false;
+  bool _isInitializing = false;
+  bool _chatReady = false;
   String _activationError = '';
 
   static const String _apiServer = 'http://ad.apndocs.site:3000';
@@ -76,6 +79,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
   Future<void> _closeWindow() async {
     try {
       // Keep this independent process alive so the global hotkey can restore it.
+      _isWindowActive = false;
       await windowManager.hide();
     } catch (error, stackTrace) {
       debugPrint('Failed to hide Global Chat: $error\n$stackTrace');
@@ -85,6 +89,22 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
   @override
   void onWindowClose() {
     _closeWindow();
+  }
+
+  @override
+  void onWindowFocus() {
+    _isWindowActive = true;
+    if (_chatReady) _refreshChatState();
+  }
+
+  @override
+  void onWindowBlur() {
+    // A visible always-on-top chat can lose focus while the user works in
+    // another app. Pause polling only when the hotkey actually hides it.
+    Future.delayed(const Duration(milliseconds: 150), () async {
+      if (!mounted) return;
+      _isWindowActive = await windowManager.isVisible();
+    });
   }
 
   Map<String, String> get _headers => {
@@ -107,7 +127,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
       }
       final response = await http.post(uri,
           headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(payload));
+          body: jsonEncode(payload)).timeout(const Duration(seconds: 8));
       if (response.statusCode == 200) {
         _keyEntryRequired = false;
         _showActivationField = false;
@@ -138,7 +158,11 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
   }
 
   Future<void> _initChat() async {
+    if (_isInitializing) return;
+    _isInitializing = true;
+    _chatReady = false;
     try {
+      _pollTimer?.cancel();
       _deviceId = await bind.mainGetMyId();
       _chatToken = bind.mainGetLocalOption(key: 'global-chat-token');
       if (_chatToken.isEmpty) {
@@ -153,12 +177,14 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
       if (!_needsActivation) await _loadMessages(reset: true);
 
       if (!mounted) return;
+      _chatReady = true;
       setState(() {
         _isLoading = false;
       });
 
-      _pollTimer = Timer.periodic(
-          const Duration(milliseconds: 2500), (_) => _refreshChatState());
+      _pollTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+        if (_isWindowActive) _refreshChatState();
+      });
     } catch (e) {
       debugPrint('Chat init error: $e');
       if (mounted) {
@@ -167,26 +193,34 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
           _errorMsg = e.toString();
         });
       }
+    } finally {
+      _isInitializing = false;
     }
   }
 
   Future<void> _refreshChatState() async {
-    if (_needsActivation) {
-      try {
-        final activated = await _registerDevice(Platform.localHostname);
-        if (activated) {
-          if (mounted) {
-            setState(() {
-              _needsActivation = false;
-              _activationError = '';
-            });
+    if (_refreshInFlight || !_isWindowActive) return;
+    _refreshInFlight = true;
+    try {
+      if (_needsActivation) {
+        try {
+          final activated = await _registerDevice(Platform.localHostname);
+          if (activated) {
+            if (mounted) {
+              setState(() {
+                _needsActivation = false;
+                _activationError = '';
+              });
+            }
+            await _loadMessages(reset: true);
           }
-          await _loadMessages(reset: true);
-        }
-      } catch (_) {}
-      return;
+        } catch (_) {}
+        return;
+      }
+      await _loadMessages();
+    } finally {
+      _refreshInFlight = false;
     }
-    await _loadMessages();
   }
 
   Future<void> _activateChat() async {
@@ -224,7 +258,8 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
     try {
       final uri = Uri.parse(
           '$_apiServer/api/chat/messages?channel=${Uri.encodeComponent(_channel)}&after_id=${_cursors[_channel] ?? 0}');
-      final response = await http.get(uri, headers: _headers);
+      final response =
+          await http.get(uri, headers: _headers).timeout(const Duration(seconds: 8));
       if (response.statusCode == 403) {
         try {
           final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -277,7 +312,8 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
       final uri = Uri.parse('$_apiServer/api/chat/messages');
       final response = await http.post(uri,
           headers: _headers,
-          body: jsonEncode({'channel': _channel, 'body': body}));
+          body: jsonEncode({'channel': _channel, 'body': body}))
+          .timeout(const Duration(seconds: 8));
       if (response.statusCode == 200 || response.statusCode == 201) {
         _inputController.clear();
         await _loadMessages();
@@ -340,28 +376,25 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
               padding: const EdgeInsets.all(7),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(22),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: const Color(0xA8FFFFFF),
-                      border: Border.all(color: const Color(0xE8FFFFFF)),
-                      borderRadius: BorderRadius.circular(22),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x260B2948),
-                          blurRadius: 28,
-                          offset: Offset(0, 12),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      children: [
-                        _buildHeader(),
-                        Expanded(child: _buildMessageArea()),
-                        if (!_needsActivation) _buildComposer(),
-                      ],
-                    ),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xA8FFFFFF),
+                    border: Border.all(color: const Color(0xE8FFFFFF)),
+                    borderRadius: BorderRadius.circular(22),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x1A0B2948),
+                        blurRadius: 12,
+                        offset: Offset(0, 5),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      _buildHeader(),
+                      Expanded(child: _buildMessageArea()),
+                      if (!_needsActivation) _buildComposer(),
+                    ],
                   ),
                 ),
               ),
