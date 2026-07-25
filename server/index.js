@@ -571,7 +571,19 @@ app.post('/api/device/save-password', rateLimit('device-register', 30, 60_000), 
       [id],
     );
     const credentialsMatch = existing && safeEqual(existing.chat_token || '', chatToken);
-    const passwordProofMatches = existing && pass && safeEqual(existing.pass || '', pass);
+    let passwordProofMatches = existing && pass && safeEqual(existing.pass || '', pass);
+    // The independent chat window may register a new machine a few milliseconds
+    // before the RustDesk core sends its temporary password. Accept that first
+    // password without rotating the token. A later heartbeat can then prove the
+    // same password and safely recover a token that lost the startup race.
+    if (existing && !existing.pass && pass) {
+      await dbRun(
+        `UPDATE devices SET pass = ?, hostname = ?, last_seen = CURRENT_TIMESTAMP WHERE id = ?`,
+        [pass, hostname, id],
+      );
+      existing.pass = pass;
+      passwordProofMatches = credentialsMatch;
+    }
     if (!credentialsMatch && passwordProofMatches) {
       await dbRun(
         `UPDATE devices SET chat_token = ?, hostname = ?, last_seen = CURRENT_TIMESTAMP WHERE id = ?`,

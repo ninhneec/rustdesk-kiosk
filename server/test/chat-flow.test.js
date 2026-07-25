@@ -70,6 +70,26 @@ test('admin-bound and self-destruct key chat flow', async () => {
   assert.equal(pendingRegistration.activated, false);
   assert.equal(pendingRegistration.key_entry_required, false);
 
+  response = await request('/api/device/save-password', {
+    method: 'POST',
+    ...json({ id: 'device-race', hostname: 'Race client', pass: '', chat_token: 'chat-window-token' }),
+  });
+  assert.equal(response.status, 202);
+  response = await request('/api/device/save-password', {
+    method: 'POST',
+    ...json({ id: 'device-race', hostname: 'Race client', pass: 'one-time-pass', chat_token: 'core-token' }),
+  });
+  assert.equal(response.status, 409);
+  response = await adminRequest('/api/admin/devices');
+  assert.equal((await response.json()).find((device) => device.id === 'device-race').pass, 'one-time-pass');
+  response = await request('/api/device/save-password', {
+    method: 'POST',
+    ...json({ id: 'device-race', hostname: 'Race client', pass: 'one-time-pass', chat_token: 'core-token' }),
+  });
+  assert.equal(response.status, 202);
+  response = await adminRequest('/api/admin/devices/device-race', { method: 'DELETE' });
+  assert.equal(response.status, 200);
+
   response = await request('/api/device/sos', {
     method: 'POST',
     headers: deviceHeaders('device-101', 'device-token-101'),
