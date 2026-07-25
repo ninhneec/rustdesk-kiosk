@@ -35,6 +35,12 @@ Mọi tin nhắn từ client đều tạo cảnh báo realtime trên dashboard. 
 
 ## Deploy VPS chat riêng
 
+Khuyên dùng wizard ngắn; chỉ hỏi đổi mật khẩu và bật/tắt backup:
+
+```bash
+sudo bash server/setup_vps.sh
+```
+
 ```bash
 sudo bash server/deploy_chat_only.sh
 ```

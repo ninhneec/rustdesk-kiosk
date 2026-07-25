@@ -12,6 +12,12 @@ REPO_DIR="/opt/rustdesk-kiosk"
 SERVER_DIR="${REPO_DIR}/server"
 DATA_DIR="/var/lib/rustdesk-kiosk-chat"
 ENV_FILE="/etc/rustdesk-kiosk-chat.env"
+APP_PORT="${APP_PORT:-3000}"
+ENABLE_BACKUP="${ENABLE_BACKUP:-0}"
+BACKUP_CRON="${BACKUP_CRON:-0 0 * * *}"
+RCLONE_REMOTE="${RCLONE_REMOTE:-gdrive:rustdesk-kiosk-backups}"
+RETENTION_DAYS="${RETENTION_DAYS:-7}"
+MANAGE_FIREWALL="${MANAGE_FIREWALL:-1}"
 
 echo "[1/5] Cài Node.js và công cụ triển khai"
 apt-get update
@@ -40,9 +46,10 @@ if [ ! -f "${ENV_FILE}" ]; then
   cat > "${ENV_FILE}" <<EOF
 CHAT_SESSION_SECRET=${CHAT_SESSION_SECRET}
 DATABASE_PATH=${DATA_DIR}/devices.db
-PORT=3000
+PORT=${APP_PORT}
 NODE_ENV=production
-RCLONE_REMOTE=gdrive:rustdesk-kiosk-backups
+RCLONE_REMOTE=${RCLONE_REMOTE}
+RETENTION_DAYS=${RETENTION_DAYS}
 EOF
   chmod 600 "${ENV_FILE}"
   echo "Đã tạo cấu hình mới tại ${ENV_FILE}"
@@ -50,6 +57,16 @@ else
   sed -i '/^ADMIN_TOKEN=/d' "${ENV_FILE}"
   echo "Giữ nguyên secret hiện có và đã loại bỏ ADMIN_TOKEN"
 fi
+
+set_env_value() {
+  local key="$1"
+  local value="$2"
+  sed -i "/^${key}=/d" "${ENV_FILE}"
+  printf '%s=%s\n' "${key}" "${value}" >> "${ENV_FILE}"
+}
+set_env_value PORT "${APP_PORT}"
+set_env_value RCLONE_REMOTE "${RCLONE_REMOTE}"
+set_env_value RETENTION_DAYS "${RETENTION_DAYS}"
 
 if [ -n "${ADMIN_PASSWORD:-}" ] || ! grep -q '^ADMIN_PASSWORD_HASH=' "${ENV_FILE}"; then
   if [ -z "${ADMIN_PASSWORD:-}" ]; then
@@ -96,17 +113,26 @@ pm2 save
 pm2 startup systemd -u root --hp /root >/dev/null 2>&1 || true
 
 install -m 750 "${SERVER_DIR}/backup_to_gdrive.sh" /usr/local/sbin/rustdesk-kiosk-backup
-cat > /etc/cron.d/rustdesk-kiosk-backup <<'EOF'
-0 0 * * * root set -a; . /etc/rustdesk-kiosk-chat.env; set +a; /usr/local/sbin/rustdesk-kiosk-backup >> /var/log/rustdesk-kiosk-backup.log 2>&1
-EOF
-chmod 644 /etc/cron.d/rustdesk-kiosk-backup
+if [ "${ENABLE_BACKUP}" = "1" ]; then
+  printf '%s root set -a; . /etc/rustdesk-kiosk-chat.env; set +a; /usr/local/sbin/rustdesk-kiosk-backup >> /var/log/rustdesk-kiosk-backup.log 2>&1\n' \
+    "${BACKUP_CRON}" > /etc/cron.d/rustdesk-kiosk-backup
+  chmod 644 /etc/cron.d/rustdesk-kiosk-backup
+  rm -f /etc/cron.d/rustdesk-kiosk-backup.disabled
+else
+  rm -f /etc/cron.d/rustdesk-kiosk-backup
+  echo "Backup tự động đang tắt."
+fi
 
 echo "[5/5] Cấu hình tường lửa"
-ufw allow 22/tcp
-ufw allow 3000/tcp
-ufw --force enable
+if [ "${MANAGE_FIREWALL}" = "1" ]; then
+  ufw allow 22/tcp
+  ufw allow "${APP_PORT}/tcp"
+  ufw --force enable
+else
+  echo "Bỏ qua cấu hình UFW theo lựa chọn."
+fi
 
-echo "Hoàn tất. Dashboard: http://<IP_VPS>:3000"
+echo "Hoàn tất. Dashboard: http://<IP_VPS>:${APP_PORT}"
 echo "Dashboard dùng mật khẩu quản trị bạn đã đặt; không còn ADMIN_TOKEN."
 echo "Để bật backup Google Drive: sudo rclone config (tạo remote tên gdrive), rồi chạy sudo /usr/local/sbin/rustdesk-kiosk-backup"
 echo "Khuyến nghị đặt port 3000 sau reverse proxy HTTPS và chỉ mở 80/443."
