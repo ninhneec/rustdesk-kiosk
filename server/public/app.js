@@ -213,13 +213,17 @@ function renderHealthHistory() {
   const width = 720;
   const height = 180;
   const x = (index) => history.length === 1 ? width / 2 : (index / (history.length - 1)) * width;
+  const maxCpu = Math.max(0, ...history.map((sample) => Number(sample.cpu) || 0));
+  const cpuCeiling = Math.max(10, Math.min(100, Math.ceil(maxCpu / 10) * 10));
+  const scaleFor = (key) => key === 'cpu' ? cpuCeiling : 100;
+  const yFor = (key, value) => height - (Math.max(0, Math.min(scaleFor(key), value)) / scaleFor(key)) * height;
   const pathFor = (key) => history.map((sample, index) => {
-    const y = height - (Math.max(0, Math.min(100, sample[key])) / 100) * height;
+    const y = yFor(key, sample[key]);
     return `${index ? 'L' : 'M'}${x(index).toFixed(1)},${y.toFixed(1)}`;
   }).join(' ') || '';
   const visiblePathFor = (key) => {
     if (history.length !== 1) return pathFor(key);
-    const y = height - (Math.max(0, Math.min(100, history[0][key])) / 100) * height;
+    const y = yFor(key, history[0][key]);
     return `M0,${y.toFixed(1)} L${width},${y.toFixed(1)}`;
   };
   const areaFor = (key) => `M0,${height} ${pathFor(key)} L${width},${height}Z`;
@@ -232,10 +236,13 @@ function renderHealthHistory() {
     <path class="chart-line cpu" d="${visiblePathFor('cpu')}"/>
     <path class="chart-line ram" d="${visiblePathFor('ram')}"/>
     <path class="chart-line disk" d="${visiblePathFor('disk')}"/>
-    <circle class="chart-dot cpu" cx="${x(history.length - 1)}" cy="${height - last.cpu / 100 * height}" r="4"/>
-    <circle class="chart-dot ram" cx="${x(history.length - 1)}" cy="${height - last.ram / 100 * height}" r="4"/>
-    <circle class="chart-dot disk" cx="${x(history.length - 1)}" cy="${height - last.disk / 100 * height}" r="4"/>
+    <circle class="chart-dot cpu" cx="${x(history.length - 1)}" cy="${yFor('cpu', last.cpu)}" r="4"/>
+    <circle class="chart-dot ram" cx="${x(history.length - 1)}" cy="${yFor('ram', last.ram)}" r="4"/>
+    <circle class="chart-dot disk" cx="${x(history.length - 1)}" cy="${yFor('disk', last.disk)}" r="4"/>
   `;
+  $('#chart-legend-cpu').textContent = `CPU ${Number(last.cpu).toFixed(1)}% · scale 0–${cpuCeiling}%`;
+  $('#chart-legend-ram').textContent = `RAM ${Number(last.ram).toFixed(1)}%`;
+  $('#chart-legend-disk').textContent = `Ổ đĩa ${Number(last.disk).toFixed(1)}%`;
   const bandwidthSamples = history.filter((sample) => sample.networkAvailable);
   const maxRate = Math.max(1, ...bandwidthSamples.flatMap((sample) => [sample.rxRate, sample.txRate]));
   const bandwidthHeight = 100;
