@@ -8,6 +8,7 @@ const state = {
     dashboard_refresh_seconds: 20, online_threshold_minutes: 5, health_refresh_seconds: 15,
     audit_retention_days: 180, chat_access_mode: 'open', device_registration_mode: 'open',
     sos_enabled: true, password_reporting_enabled: true, admin_allowed_ips: '', transient_retention_days: 3,
+    bandwidth_quota_gb: 100, bandwidth_overage_usd_per_gb: 0.09,
   },
 };
 const chatWindows = new Map();
@@ -155,6 +156,8 @@ async function fetchSystemSettings() {
   $('#health-refresh-seconds').value = state.settings.health_refresh_seconds;
   $('#audit-retention-days').value = state.settings.audit_retention_days;
   $('#transient-retention-days').value = state.settings.transient_retention_days;
+  $('#bandwidth-quota-gb').value = state.settings.bandwidth_quota_gb;
+  $('#bandwidth-overage-price').value = state.settings.bandwidth_overage_usd_per_gb;
   $('#chat-access-mode').value = state.settings.chat_access_mode;
   $('#device-registration-mode').value = state.settings.device_registration_mode;
   $('#sos-enabled').checked = state.settings.sos_enabled;
@@ -256,6 +259,53 @@ function renderHealthHistory() {
     : 'Đang tạo mẫu đầu tiên';
 }
 
+function renderBandwidthAccounting(health) {
+  const daily = Array.isArray(health.bandwidth?.daily) ? health.bandwidth.daily : [];
+  const recent = daily.slice(-31);
+  const today = daily.at(-1) || { rx_bytes: 0, tx_bytes: 0 };
+  const week = daily.slice(-7).reduce((sum, day) => sum + Number(day.rx_bytes || 0) + Number(day.tx_bytes || 0), 0);
+  const now = new Date();
+  const monthPrefix = now.toISOString().slice(0, 7);
+  const monthDays = daily.filter((day) => String(day.day).startsWith(monthPrefix));
+  const monthTx = monthDays.reduce((sum, day) => sum + Number(day.tx_bytes || 0), 0);
+  const monthRx = monthDays.reduce((sum, day) => sum + Number(day.rx_bytes || 0), 0);
+  const daysInMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
+  const elapsedDays = Math.max(1, now.getUTCDate());
+  const projectedTx = monthTx / elapsedDays * daysInMonth;
+  const quotaBytes = Number(health.bandwidth?.quota_gb || 0) * 1024 ** 3;
+  const overageBytes = Math.max(0, projectedTx - quotaBytes);
+  const estimatedCost = overageBytes / 1024 ** 3 * Number(health.bandwidth?.overage_usd_per_gb || 0);
+  $('#bandwidth-today').textContent = formatBytes(Number(today.rx_bytes || 0) + Number(today.tx_bytes || 0));
+  $('#bandwidth-today-split').textContent = `RX ${formatBytes(today.rx_bytes)} · TX ${formatBytes(today.tx_bytes)}`;
+  $('#bandwidth-week').textContent = formatBytes(week);
+  $('#bandwidth-month').textContent = formatBytes(monthTx);
+  $('#bandwidth-projected').textContent = formatBytes(projectedTx);
+  $('#bandwidth-overage').textContent = formatBytes(overageBytes);
+  $('#bandwidth-estimated-cost').textContent = `Ước tính $${estimatedCost.toFixed(2)} USD`;
+  const quotaPercent = quotaBytes > 0 ? monthTx / quotaBytes * 100 : 0;
+  $('#bandwidth-quota-status').textContent = quotaBytes > 0
+    ? `${quotaPercent.toFixed(1)}% của ${formatBytes(quotaBytes)} · RX tháng ${formatBytes(monthRx)}`
+    : `Chưa đặt hạn mức · RX tháng ${formatBytes(monthRx)}`;
+
+  const svg = $('#bandwidth-daily-chart');
+  const width = 920;
+  const height = 150;
+  const maxTotal = Math.max(1, ...recent.map((day) => Number(day.rx_bytes || 0) + Number(day.tx_bytes || 0)));
+  const slot = width / Math.max(1, recent.length);
+  const barWidth = Math.max(3, Math.min(20, slot * .58));
+  const bars = recent.map((day, index) => {
+    const rxHeight = Number(day.rx_bytes || 0) / maxTotal * height;
+    const txHeight = Number(day.tx_bytes || 0) / maxTotal * height;
+    const x = index * slot + (slot - barWidth) / 2;
+    const txY = height - txHeight;
+    const rxY = txY - rxHeight;
+    const label = `${day.day}: RX ${formatBytes(day.rx_bytes)}, TX ${formatBytes(day.tx_bytes)}`;
+    return `<g><title>${label}</title><rect class="daily-bar rx" x="${x.toFixed(1)}" y="${Math.max(0, rxY).toFixed(1)}" width="${barWidth.toFixed(1)}" height="${rxHeight.toFixed(1)}"/><rect class="daily-bar tx" x="${x.toFixed(1)}" y="${txY.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${txHeight.toFixed(1)}"/></g>`;
+  }).join('');
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  svg.innerHTML = `<g class="chart-grid"><path d="M0 0H920M0 50H920M0 100H920M0 150H920"/></g>${bars}`;
+}
+
 function renderHealth(health) {
   const hostMemoryUsed = health.host.memory_total_bytes - health.host.memory_free_bytes;
   const diskUsed = health.host.disk_total_bytes - health.host.disk_free_bytes;
@@ -288,6 +338,7 @@ function renderHealth(health) {
   renderHealthGauge('#gauge-ram', ramPercent, 'RAM VPS', `${formatBytes(hostMemoryUsed)} / ${formatBytes(health.host.memory_total_bytes)}`);
   renderHealthGauge('#gauge-disk', diskPercent, 'Ổ đĩa', `${formatBytes(diskUsed)} / ${formatBytes(health.host.disk_total_bytes)}`, 90);
   renderHealthHistory();
+  renderBandwidthAccounting(health);
   const cards = [
     ['API', health.status === 'ok' ? 'Hoạt động' : 'Có lỗi', health.status === 'ok'],
     ['Thiết bị online', `${health.devices.online || 0}/${health.devices.total || 0}`, true],
@@ -1451,6 +1502,8 @@ $('#system-settings-form').addEventListener('submit', async (event) => {
         health_refresh_seconds: Number($('#health-refresh-seconds').value),
         audit_retention_days: Number($('#audit-retention-days').value),
         transient_retention_days: Number($('#transient-retention-days').value),
+        bandwidth_quota_gb: Number($('#bandwidth-quota-gb').value),
+        bandwidth_overage_usd_per_gb: Number($('#bandwidth-overage-price').value),
         chat_access_mode: $('#chat-access-mode').value,
         device_registration_mode: $('#device-registration-mode').value,
         sos_enabled: $('#sos-enabled').checked,

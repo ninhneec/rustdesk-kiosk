@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07111f">
   <title>RustDesk Kiosk · Trung tâm hỗ trợ</title>
   <meta name="description" content="Bảng điều phối thiết bị và hỗ trợ RustDesk Kiosk P204">
-  <link rel="stylesheet" href="style.css?v=ops-dashboard-7">
+  <link rel="stylesheet" href="style.css?v=ops-dashboard-8">
 </head>
 <body>
   <section id="login-view" class="auth-view">
@@ -251,6 +251,24 @@
               <div class="chart-legend"><span class="download">Download</span><span class="upload">Upload</span></div>
             </section>
           </div>
+          <section class="bandwidth-accounting">
+            <header>
+              <div><p class="eyebrow">BANDWIDTH COST CONTROL</p><h3>Dữ liệu đã sử dụng</h3></div>
+              <small>TX ra Internet dùng để ước tính chi phí · số AWS Billing là quyết toán cuối</small>
+            </header>
+            <div class="bandwidth-kpis">
+              <article><span>Hôm nay</span><strong id="bandwidth-today">0 B</strong><small id="bandwidth-today-split">RX 0 · TX 0</small></article>
+              <article><span>7 ngày</span><strong id="bandwidth-week">0 B</strong><small>Tổng hai chiều</small></article>
+              <article><span>TX tháng này</span><strong id="bandwidth-month">0 B</strong><small id="bandwidth-quota-status">Đang tính hạn mức</small></article>
+              <article><span>Dự báo cuối tháng</span><strong id="bandwidth-projected">0 B</strong><small>Dựa trên tốc độ sử dụng hiện tại</small></article>
+              <article class="cost"><span>Vượt hạn mức dự kiến</span><strong id="bandwidth-overage">0 B</strong><small id="bandwidth-estimated-cost">Ước tính $0.00</small></article>
+            </div>
+            <div class="bandwidth-daily-chart">
+              <div class="chart-axis-label">31 ngày gần nhất · mỗi cột là một ngày UTC</div>
+              <svg id="bandwidth-daily-chart" role="img" aria-label="Băng thông download và upload theo ngày"></svg>
+              <div class="chart-legend"><span class="download">RX vào VPS</span><span class="upload">TX ra Internet</span></div>
+            </div>
+          </section>
           <details class="health-technical">
             <summary>Thông số kỹ thuật chi tiết</summary>
             <div class="health-columns">
@@ -311,6 +329,8 @@
               <select id="transient-retention-days"><option value="2">2 ngày</option><option value="3">3 ngày · khuyên dùng</option></select>
               <small>Chỉ xóa mẫu biểu đồ và cảnh báo đã xử lý.</small>
             </label>
+            <label>Hạn mức TX mỗi tháng (GB)<input id="bandwidth-quota-gb" type="number" min="0" max="1000000" step="1"></label>
+            <label>Giá vượt mức (USD/GB)<input id="bandwidth-overage-price" type="number" min="0" max="1000" step="0.001"></label>
             </fieldset>
             <button class="button primary wide" type="submit">Lưu cấu hình</button>
             <span id="system-settings-message" class="form-message"></span>
@@ -331,6 +351,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="app.js?v=p204-map-14"></script>
+  <script src="app.js?v=p204-map-15"></script>
 </body>
 </html>

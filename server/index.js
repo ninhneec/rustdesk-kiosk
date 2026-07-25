@@ -92,10 +92,18 @@ async function cleanupTransientData() {
 
 function linuxNetworkTotals() {
   try {
+    const defaultRoute = fs.readFileSync('/proc/net/route', 'utf8').split('\n')
+      .slice(1)
+      .map((line) => line.trim().split(/\s+/))
+      .find((columns) => columns[1] === '00000000');
+    const primaryInterface = defaultRoute?.[0] || null;
     const lines = fs.readFileSync('/proc/net/dev', 'utf8').split('\n').slice(2);
     return lines.reduce((total, line) => {
       const [namePart, countersPart] = line.trim().split(':');
-      if (!countersPart || namePart.trim() === 'lo') return total;
+      const interfaceName = namePart?.trim();
+      if (!countersPart || interfaceName === 'lo') return total;
+      if (primaryInterface && interfaceName !== primaryInterface) return total;
+      if (!primaryInterface && /^(docker|veth|br-|virbr)/.test(interfaceName)) return total;
       const counters = countersPart.trim().split(/\s+/).map(Number);
       total.rx_bytes += counters[0] || 0;
       total.tx_bytes += counters[8] || 0;
@@ -122,6 +130,43 @@ function cpuUsagePercent() {
   const idleDelta = current.idle - previousCpuTimes.idle;
   previousCpuTimes = current;
   return totalDelta > 0 ? Math.max(0, Math.min(100, (1 - idleDelta / totalDelta) * 100)) : 0;
+}
+
+async function recordSystemMetric() {
+  const disk = fs.statfsSync(path.parse(databasePath).root || '/');
+  const network = linuxNetworkTotals();
+  const memoryUsed = os.totalmem() - os.freemem();
+  const diskTotal = disk.blocks * disk.bsize;
+  const diskUsed = diskTotal - disk.bavail * disk.bsize;
+  const cpuPercent = cpuUsagePercent();
+  const ramPercent = Math.max(0, Math.min(100, (memoryUsed / Math.max(1, os.totalmem())) * 100));
+  const diskPercent = Math.max(0, Math.min(100, (diskUsed / Math.max(1, diskTotal)) * 100));
+  const lastMetric = await dbGet(
+    'SELECT rx_bytes, tx_bytes, created_at FROM system_metrics ORDER BY id DESC LIMIT 1',
+  );
+  const lastMetricAt = lastMetric?.created_at ? new Date(`${lastMetric.created_at}Z`).getTime() : 0;
+  if (!lastMetricAt || Date.now() - lastMetricAt >= 5 * 60_000) {
+    await dbRun(
+      `INSERT INTO system_metrics (cpu_percent, ram_percent, disk_percent, rx_bytes, tx_bytes)
+       VALUES (?, ?, ?, ?, ?)`,
+      [cpuPercent, ramPercent, diskPercent, network.rx_bytes, network.tx_bytes],
+    );
+    const rxDelta = Number.isFinite(network.rx_bytes) && Number.isFinite(lastMetric?.rx_bytes)
+      ? Math.max(0, network.rx_bytes - lastMetric.rx_bytes) : 0;
+    const txDelta = Number.isFinite(network.tx_bytes) && Number.isFinite(lastMetric?.tx_bytes)
+      ? Math.max(0, network.tx_bytes - lastMetric.tx_bytes) : 0;
+    await dbRun(
+      `INSERT INTO bandwidth_daily (day, rx_bytes, tx_bytes, sample_count)
+       VALUES (date('now'), ?, ?, 1)
+       ON CONFLICT(day) DO UPDATE SET
+         rx_bytes = rx_bytes + excluded.rx_bytes,
+         tx_bytes = tx_bytes + excluded.tx_bytes,
+         sample_count = sample_count + 1,
+         updated_at = CURRENT_TIMESTAMP`,
+      [rxDelta, txDelta],
+    );
+  }
+  return { disk, network, memoryUsed, diskTotal, diskUsed, cpuPercent, ramPercent, diskPercent };
 }
 
 async function addColumnIfMissing(table, column, definition) {
@@ -245,6 +290,14 @@ async function initializeDatabase() {
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`);
   await dbRun('CREATE INDEX IF NOT EXISTS idx_system_metrics_created ON system_metrics(id DESC)');
+  await dbRun(`CREATE TABLE IF NOT EXISTS bandwidth_daily (
+    day TEXT PRIMARY KEY,
+    rx_bytes INTEGER NOT NULL DEFAULT 0,
+    tx_bytes INTEGER NOT NULL DEFAULT 0,
+    sample_count INTEGER NOT NULL DEFAULT 0,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await dbRun("DELETE FROM bandwidth_daily WHERE day < date('now', '-400 days')");
   await dbRun("INSERT OR IGNORE INTO settings (key, value) VALUES ('transient_retention_days', '3')");
   await cleanupTransientData();
   const keywordSetting = await dbGet('SELECT value FROM settings WHERE key = ?', ['alert_keywords']);
@@ -259,6 +312,11 @@ async function initializeDatabase() {
 
 databaseReady = initializeDatabase();
 databaseReady.then(() => {
+  recordSystemMetric().catch((error) => console.error('Could not record initial system metric:', error));
+  const metricTimer = setInterval(() => recordSystemMetric().catch((error) => {
+    console.error('Could not record system metric:', error);
+  }), 5 * 60_000);
+  metricTimer.unref();
   const cleanupTimer = setInterval(() => cleanupTransientData().catch((error) => {
     console.error('Could not clean transient data:', error);
   }), 24 * 60 * 60_000);
@@ -1018,30 +1076,20 @@ app.get('/api/admin/system/health', requireAdmin, async (_req, res) => {
                FROM audit_logs WHERE success = 0 ORDER BY id DESC LIMIT 8`),
     ]);
     const processMemory = process.memoryUsage();
-    const disk = fs.statfsSync(path.parse(databasePath).root || '/');
+    const snapshot = await recordSystemMetric();
+    const { disk, network, memoryUsed, diskTotal, diskUsed, cpuPercent } = snapshot;
     const databaseBytes = fs.existsSync(databasePath) ? fs.statSync(databasePath).size : 0;
     const walPath = `${databasePath}-wal`;
     const walBytes = fs.existsSync(walPath) ? fs.statSync(walPath).size : 0;
-    const network = linuxNetworkTotals();
-    const memoryUsed = os.totalmem() - os.freemem();
-    const diskTotal = disk.blocks * disk.bsize;
-    const diskUsed = diskTotal - disk.bavail * disk.bsize;
-    const cpuPercent = cpuUsagePercent();
-    const ramPercent = Math.max(0, Math.min(100, (memoryUsed / Math.max(1, os.totalmem())) * 100));
-    const diskPercent = Math.max(0, Math.min(100, (diskUsed / Math.max(1, diskTotal)) * 100));
-    const lastMetric = await dbGet('SELECT created_at FROM system_metrics ORDER BY id DESC LIMIT 1');
-    const lastMetricAt = lastMetric?.created_at ? new Date(`${lastMetric.created_at}Z`).getTime() : 0;
-    if (!lastMetricAt || Date.now() - lastMetricAt >= 5 * 60_000) {
-      await dbRun(
-        `INSERT INTO system_metrics (cpu_percent, ram_percent, disk_percent, rx_bytes, tx_bytes)
-         VALUES (?, ?, ?, ?, ?)`,
-        [cpuPercent, ramPercent, diskPercent, network.rx_bytes, network.tx_bytes],
-      );
-    }
-    const metricHistory = (await dbAll(
-      `SELECT cpu_percent, ram_percent, disk_percent, rx_bytes, tx_bytes, created_at
-         FROM system_metrics ORDER BY id DESC LIMIT 40`,
-    )).reverse();
+    const [metricHistoryDescending, bandwidthDaily] = await Promise.all([
+      dbAll(`SELECT cpu_percent, ram_percent, disk_percent, rx_bytes, tx_bytes, created_at
+               FROM system_metrics ORDER BY id DESC LIMIT 40`),
+      dbAll(`SELECT day, rx_bytes, tx_bytes, sample_count
+               FROM bandwidth_daily WHERE day >= date('now', '-400 days') ORDER BY day`),
+    ]);
+    const metricHistory = metricHistoryDescending.reverse();
+    const bandwidthQuotaGb = Number(await settingValue('bandwidth_quota_gb', '100')) || 100;
+    const bandwidthOveragePrice = Number(await settingValue('bandwidth_overage_usd_per_gb', '0.09')) || 0;
     res.json({
       status: 'ok',
       server_time: new Date().toISOString(),
@@ -1077,6 +1125,12 @@ app.get('/api/admin/system/health', requireAdmin, async (_req, res) => {
       audit: auditStats,
       metric_interval_seconds: 300,
       metric_history: metricHistory,
+      bandwidth: {
+        daily: bandwidthDaily,
+        quota_gb: bandwidthQuotaGb,
+        overage_usd_per_gb: bandwidthOveragePrice,
+        accounting_note: 'Interface counters; TX is outbound from VPS',
+      },
       backup: {
         cron_enabled: fs.existsSync('/etc/cron.d/rustdesk-kiosk-backup'),
         google_drive_configured: fs.existsSync('/root/.config/rclone/rclone.conf'),
@@ -1100,7 +1154,7 @@ app.get('/api/admin/settings/system', requireAdmin, async (_req, res) => {
       'audit_retention_days', 'health_refresh_seconds', 'dashboard_refresh_seconds',
       'online_threshold_minutes', 'chat_access_mode', 'device_registration_mode',
       'sos_enabled', 'password_reporting_enabled', 'admin_allowed_ips',
-      'transient_retention_days'
+      'transient_retention_days', 'bandwidth_quota_gb', 'bandwidth_overage_usd_per_gb'
     )`);
     const values = Object.fromEntries(rows.map((row) => [row.key, row.value]));
     res.json({
@@ -1114,6 +1168,8 @@ app.get('/api/admin/settings/system', requireAdmin, async (_req, res) => {
       password_reporting_enabled: values.password_reporting_enabled !== '0',
       admin_allowed_ips: values.admin_allowed_ips || '',
       transient_retention_days: Number(values.transient_retention_days) === 2 ? 2 : 3,
+      bandwidth_quota_gb: Number(values.bandwidth_quota_gb) || 100,
+      bandwidth_overage_usd_per_gb: Number(values.bandwidth_overage_usd_per_gb) || 0,
       current_admin_ip: clientIp(_req),
     });
   } catch (_error) {
@@ -1131,6 +1187,8 @@ app.post('/api/admin/settings/system', requireAdmin, requireSameOrigin, async (r
   const sosEnabled = req.body.sos_enabled === false ? '0' : '1';
   const passwordReporting = req.body.password_reporting_enabled === false ? '0' : '1';
   const transientRetention = Number(req.body.transient_retention_days) === 2 ? 2 : 3;
+  const bandwidthQuotaGb = Math.max(0, Math.min(1_000_000, Number(req.body.bandwidth_quota_gb) || 0));
+  const bandwidthOveragePrice = Math.max(0, Math.min(1_000, Number(req.body.bandwidth_overage_usd_per_gb) || 0));
   const adminAllowedIps = typeof req.body.admin_allowed_ips === 'string'
     ? [...new Set(req.body.admin_allowed_ips.split(/[\s,;]+/).map((item) => item.trim()).filter(Boolean))]
     : [];
@@ -1165,6 +1223,10 @@ app.post('/api/admin/settings/system', requireAdmin, requireSameOrigin, async (r
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [adminAllowedIps.join(',')]);
     await dbRun(`INSERT INTO settings (key, value) VALUES ('transient_retention_days', ?)
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(transientRetention)]);
+    await dbRun(`INSERT INTO settings (key, value) VALUES ('bandwidth_quota_gb', ?)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(bandwidthQuotaGb)]);
+    await dbRun(`INSERT INTO settings (key, value) VALUES ('bandwidth_overage_usd_per_gb', ?)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(bandwidthOveragePrice)]);
     await dbRun("DELETE FROM audit_logs WHERE created_at < datetime('now', ?)", [`-${retention} days`]);
     await cleanupTransientData();
     res.json({
@@ -1178,6 +1240,8 @@ app.post('/api/admin/settings/system', requireAdmin, requireSameOrigin, async (r
       password_reporting_enabled: passwordReporting === '1',
       admin_allowed_ips: adminAllowedIps.join(','),
       transient_retention_days: transientRetention,
+      bandwidth_quota_gb: bandwidthQuotaGb,
+      bandwidth_overage_usd_per_gb: bandwidthOveragePrice,
       current_admin_ip: clientIp(req),
     });
   } catch (error) {

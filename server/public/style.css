@@ -1047,6 +1047,24 @@ tbody tr:nth-child(even) { background: rgba(255,255,255,.012); }
 .chart-legend .disk { color: #f4b75d; }
 .chart-legend .download { color: #4ed8c3; }
 .chart-legend .upload { color: #d597ff; }
+.bandwidth-accounting { grid-column: 1 / -1; display: grid; gap: .8rem; margin: 0 1rem 1rem; padding: 1rem; border: 1px solid rgba(78,216,195,.2); border-radius: 13px; background: linear-gradient(135deg, rgba(78,216,195,.045), rgba(3,12,22,.28) 42%); }
+.bandwidth-accounting > header { display: flex; align-items: end; justify-content: space-between; gap: 1rem; }
+.bandwidth-accounting h3 { margin: .2rem 0 0; color: #edf6f8; font-size: 1rem; }
+.bandwidth-accounting > header > small { max-width: 420px; color: var(--muted); font-size: .59rem; line-height: 1.5; text-align: right; }
+.bandwidth-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border-block: 1px solid var(--line); }
+.bandwidth-kpis article { display: grid; gap: .3rem; min-width: 0; padding: .85rem; border-right: 1px solid var(--line); }
+.bandwidth-kpis article:last-child { border-right: 0; }
+.bandwidth-kpis span { color: var(--muted); font-size: .6rem; }
+.bandwidth-kpis strong { overflow: hidden; color: #edf6f8; font-size: 1.05rem; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.bandwidth-kpis small { min-height: 2.4em; color: #89a0b1; font-size: .55rem; line-height: 1.35; }
+.bandwidth-kpis .cost strong { color: #f4b75d; }
+.bandwidth-daily-chart { min-width: 0; }
+.chart-axis-label { margin-bottom: .3rem; color: var(--muted); font-size: .56rem; }
+#bandwidth-daily-chart { display: block; width: 100%; height: 150px; overflow: visible; }
+.daily-bar { transform-box: fill-box; transform-origin: bottom; animation: daily-bar-rise .5s cubic-bezier(.2,.8,.2,1) both; }
+.daily-bar.rx { fill: #4ed8c3; opacity: .72; }
+.daily-bar.tx { fill: #d597ff; opacity: .9; }
+@keyframes daily-bar-rise { from { transform: scaleY(0); opacity: 0; } }
 @keyframes chart-draw { to { stroke-dashoffset: 0; } }
 @keyframes chart-dot-in { from { opacity: 0; transform: scale(.25); } to { opacity: 1; transform: scale(1); } }
 @keyframes chart-dot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
@@ -1129,6 +1147,8 @@ tbody tr:nth-child(even) { background: rgba(255,255,255,.012); }
   .health-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .health-summary, .health-visuals, .health-failures { grid-column: 1; grid-row: auto; margin-inline: 1rem; padding-inline: 0; }
   .health-visuals { grid-template-columns: 1fr; }
+  .bandwidth-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bandwidth-kpis article { border-bottom: 1px solid var(--line); }
   .health-columns, .settings-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
@@ -1138,4 +1158,7 @@ tbody tr:nth-child(even) { background: rgba(255,255,255,.012); }
   .health-gauge > div { grid-row: span 2; width: 68px; }
   .health-columns, .settings-groups { grid-template-columns: 1fr; }
   .settings-preset { grid-template-columns: 1fr; }
+  .bandwidth-accounting > header { align-items: start; flex-direction: column; }
+  .bandwidth-accounting > header > small { text-align: left; }
+  .bandwidth-kpis { grid-template-columns: 1fr; }
 }

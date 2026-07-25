@@ -74,6 +74,8 @@ test('admin-bound and self-destruct key chat flow', async () => {
       password_reporting_enabled: true,
       admin_allowed_ips: '',
       transient_retention_days: 3,
+      bandwidth_quota_gb: 100,
+      bandwidth_overage_usd_per_gb: 0.09,
     }),
   });
   assert.equal(response.status, 200);
@@ -458,6 +460,8 @@ test('admin-bound and self-destruct key chat flow', async () => {
       password_reporting_enabled: true,
       admin_allowed_ips: '',
       transient_retention_days: 2,
+      bandwidth_quota_gb: 100,
+      bandwidth_overage_usd_per_gb: 0.09,
     }),
   });
   assert.equal(response.status, 200);
@@ -491,4 +495,6 @@ test('admin-bound and self-destruct key chat flow', async () => {
   assert.equal(health.metric_interval_seconds, 300);
   assert.equal(health.metric_history.length >= 1, true);
   assert.equal(typeof health.host.cpu_percent, 'number');
+  assert.equal(Array.isArray(health.bandwidth.daily), true);
+  assert.equal(health.bandwidth.quota_gb, 100);
 });
