@@ -41,6 +41,12 @@ Khuyên dùng wizard ngắn; chỉ hỏi đổi mật khẩu và bật/tắt bac
 sudo bash server/setup_vps.sh
 ```
 
+Xem nhanh toàn bộ trạng thái VPS mà không lộ secret:
+
+```bash
+sudo bash server/status_vps.sh
+```
+
 ```bash
 sudo bash server/deploy_chat_only.sh
 ```
