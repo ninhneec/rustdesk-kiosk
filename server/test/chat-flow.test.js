@@ -327,4 +327,22 @@ test('admin-bound and self-destruct key chat flow', async () => {
   assert.equal(auditLogs.some((log) => log.action === 'chat.emergency_delete' && log.success), true);
   assert.equal(auditLogs.some((log) => JSON.stringify(log).includes('temporary-proof')), false);
   assert.equal(auditLogs.some((log) => JSON.stringify(log).includes('rotated-device-token')), false);
+
+  response = await adminRequest('/api/admin/settings/system', {
+    method: 'POST',
+    ...json({
+      audit_retention_days: 90,
+      health_refresh_seconds: 10,
+      dashboard_refresh_seconds: 15,
+      online_threshold_minutes: 4,
+    }),
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).audit_retention_days, 90);
+  response = await adminRequest('/api/admin/system/health');
+  assert.equal(response.status, 200);
+  const health = await response.json();
+  assert.equal(health.status, 'ok');
+  assert.equal(typeof health.process.uptime_seconds, 'number');
+  assert.equal(typeof health.database.bytes, 'number');
 });

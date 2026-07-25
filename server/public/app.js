@@ -1,7 +1,10 @@
 'use strict';
 
 const $ = (selector) => document.querySelector(selector);
-const state = { devices: [], alerts: [], keys: [], logs: [], eventSource: null, refreshTimer: null };
+const state = {
+  devices: [], alerts: [], keys: [], logs: [], eventSource: null, refreshTimer: null, healthTimer: null,
+  settings: { dashboard_refresh_seconds: 20, online_threshold_minutes: 5, health_refresh_seconds: 15, audit_retention_days: 180 },
+};
 const chatWindows = new Map();
 const loginView = $('#login-view');
 const appView = $('#app');
@@ -80,7 +83,7 @@ function serverDate(value) {
 
 function isOnline(device) {
   const lastSeen = serverDate(device.last_seen);
-  return lastSeen && Date.now() - lastSeen.getTime() < 5 * 60 * 1000;
+  return lastSeen && Date.now() - lastSeen.getTime() < state.settings.online_threshold_minutes * 60 * 1000;
 }
 
 function isActive(device) {
@@ -123,6 +126,99 @@ async function fetchKeywords() {
   $('#keywords-input').value = result.keywords || '';
 }
 
+async function fetchSystemSettings() {
+  state.settings = await api('/api/admin/settings/system');
+  $('#dashboard-refresh-seconds').value = state.settings.dashboard_refresh_seconds;
+  $('#online-threshold-minutes').value = state.settings.online_threshold_minutes;
+  $('#health-refresh-seconds').value = state.settings.health_refresh_seconds;
+  $('#audit-retention-days').value = state.settings.audit_retention_days;
+}
+
+function formatBytes(value) {
+  const bytes = Number(value) || 0;
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let size = bytes;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit += 1; }
+  return `${size >= 10 || unit === 0 ? size.toFixed(0) : size.toFixed(1)} ${units[unit]}`;
+}
+
+function formatDuration(seconds) {
+  const total = Math.max(0, Number(seconds) || 0);
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  return [days && `${days} ngày`, hours && `${hours} giờ`, `${minutes} phút`].filter(Boolean).join(' ');
+}
+
+function fillHealthDetails(selector, entries) {
+  const list = $(selector);
+  list.replaceChildren();
+  entries.forEach(([label, value]) => {
+    list.append(element('dt', '', label), element('dd', '', String(value ?? '—')));
+  });
+}
+
+function renderHealth(health) {
+  const hostMemoryUsed = health.host.memory_total_bytes - health.host.memory_free_bytes;
+  const diskUsed = health.host.disk_total_bytes - health.host.disk_free_bytes;
+  const cards = [
+    ['API', health.status === 'ok' ? 'Hoạt động' : 'Có lỗi', health.status === 'ok'],
+    ['Thiết bị online', `${health.devices.online || 0}/${health.devices.total || 0}`, true],
+    ['RAM VPS', `${formatBytes(hostMemoryUsed)} / ${formatBytes(health.host.memory_total_bytes)}`, hostMemoryUsed / health.host.memory_total_bytes < .9],
+    ['Ổ đĩa', `${formatBytes(diskUsed)} / ${formatBytes(health.host.disk_total_bytes)}`, diskUsed / health.host.disk_total_bytes < .9],
+    ['Cảnh báo mở', health.chat.open_alerts || 0, Number(health.chat.open_alerts) === 0],
+    ['Backup', health.backup.cron_enabled ? 'Đang bật' : 'Đang tắt', !health.backup.cron_enabled || health.backup.last_action !== 'backup.failed'],
+  ];
+  const summary = $('#health-summary');
+  summary.replaceChildren(...cards.map(([label, value, good]) => {
+    const card = element('article', `health-card ${good ? 'good' : 'bad'}`);
+    card.append(element('span', '', label), element('strong', '', value));
+    return card;
+  }));
+  fillHealthDetails('#health-process', [
+    ['PID', health.process.pid], ['Node.js', health.process.node], ['Uptime', formatDuration(health.process.uptime_seconds)],
+    ['RAM process', formatBytes(health.process.rss_bytes)], ['Heap', `${formatBytes(health.process.heap_used_bytes)} / ${formatBytes(health.process.heap_total_bytes)}`],
+  ]);
+  fillHealthDetails('#health-host', [
+    ['Hostname', health.host.hostname], ['Hệ điều hành', health.host.platform], ['CPU', `${health.host.cpu_count} lõi`],
+    ['Load average', health.host.load_average.map((value) => Number(value).toFixed(2)).join(' / ')], ['Uptime VPS', formatDuration(health.host.uptime_seconds)],
+  ]);
+  fillHealthDetails('#health-data', [
+    ['Database', formatBytes(health.database.bytes)], ['SQLite WAL', formatBytes(health.database.wal_bytes)],
+    ['Thiết bị', health.devices.total || 0], ['Tin nhắn', health.chat.messages || 0], ['Audit rows', health.audit.total || 0],
+  ]);
+  fillHealthDetails('#health-services', [
+    ['Realtime admin', health.traffic.realtime_admin_connections], ['Rate-limit buckets', health.traffic.rate_limit_buckets],
+    ['Cron backup', health.backup.cron_enabled ? 'Bật' : 'Tắt'], ['Google Drive', health.backup.google_drive_configured ? 'Đã cấu hình' : 'Chưa cấu hình'],
+    ['Backup cuối', health.backup.last_action ? `${auditLabels[health.backup.last_action] || health.backup.last_action} · ${serverDate(health.backup.last_at)?.toLocaleString('vi-VN') || ''}` : 'Chưa có'],
+  ]);
+  const failures = $('#health-failure-list');
+  failures.replaceChildren();
+  if (!health.recent_failures.length) failures.append(element('p', 'empty-health', 'Không có lỗi gần đây.'));
+  health.recent_failures.forEach((failure) => {
+    const item = element('article', 'health-failure');
+    item.append(
+      element('strong', '', auditLabels[failure.action] || failure.action),
+      element('span', '', `${failure.actor_id || 'system'} · ${serverDate(failure.created_at)?.toLocaleString('vi-VN') || ''}`),
+    );
+    failures.append(item);
+  });
+}
+
+async function fetchHealth() {
+  clearTimeout(state.healthTimer);
+  try {
+    renderHealth(await api('/api/admin/system/health'));
+  } catch (error) {
+    notify(`Không thể đọc server health: ${error.message}`);
+  } finally {
+    if (!$('#tab-health').hidden) {
+      state.healthTimer = setTimeout(fetchHealth, state.settings.health_refresh_seconds * 1000);
+    }
+  }
+}
+
 async function fetchLogs() {
   const params = new URLSearchParams({ limit: '300' });
   const action = $('#log-action-filter').value;
@@ -144,7 +240,7 @@ async function refreshAll({ quiet = false } = {}) {
   } finally {
     state.refreshTimer = setTimeout(() => {
       if (!document.hidden && !appView.hidden) refreshAll({ quiet: true });
-    }, 20_000);
+    }, state.settings.dashboard_refresh_seconds * 1000);
   }
 }
 
@@ -262,6 +358,7 @@ const auditLabels = {
   'chat.emergency_delete': 'Xóa chat khẩn cấp',
   'alert.acknowledge': 'Xử lý cảnh báo',
   'settings.update_keywords': 'Sửa từ khóa cảnh báo',
+  'settings.update_system': 'Sửa cấu hình vận hành',
   'backup.success': 'Backup Google Drive thành công',
   'backup.failed': 'Backup Google Drive thất bại',
   'api.mutation': 'Thay đổi hệ thống',
@@ -898,6 +995,8 @@ function switchTab(tab) {
   history.replaceState(null, '', `#${tab}`);
   if (tab === 'map') requestAnimationFrame(() => mapView.initialized ? applyMapView() : fitMapView());
   if (tab === 'logs') fetchLogs().catch((error) => notify(`Không thể tải nhật ký: ${error.message}`));
+  if (tab === 'health') fetchHealth();
+  else clearTimeout(state.healthTimer);
 }
 
 $('#login-form').addEventListener('submit', async (event) => {
@@ -909,7 +1008,7 @@ $('#login-form').addEventListener('submit', async (event) => {
     await api('/api/admin/session', { method: 'POST', body: JSON.stringify({ password: $('#admin-password').value }) });
     $('#admin-password').value = '';
     showDashboard();
-    await fetchKeywords();
+    await Promise.all([fetchKeywords(), fetchSystemSettings()]);
   } catch (error) { $('#login-error').textContent = error.message; }
   finally { button.disabled = false; }
 });
@@ -932,6 +1031,7 @@ $('#search-input').addEventListener('input', renderDevices);
 $('#status-filter').addEventListener('change', renderDevices);
 document.querySelectorAll('.tab-button').forEach((button) => button.addEventListener('click', () => switchTab(button.dataset.tab)));
 $('#refresh-logs-btn').addEventListener('click', () => fetchLogs());
+$('#refresh-health-btn').addEventListener('click', () => fetchHealth());
 $('#log-action-filter').addEventListener('change', () => fetchLogs());
 let logSearchTimer;
 $('#log-search').addEventListener('input', () => {
@@ -954,8 +1054,8 @@ document.addEventListener('keydown', (event) => {
     $('#search-input').focus();
   } else if (event.key === 'Escape' && $('#seat-modal').open) {
     $('#seat-modal').close();
-  } else if (!editing && ['1', '2', '3', '4', '5'].includes(event.key)) {
-    switchTab(['devices', 'map', 'keys', 'settings', 'logs'][Number(event.key) - 1]);
+  } else if (!editing && ['1', '2', '3', '4', '5', '6'].includes(event.key)) {
+    switchTab(['devices', 'map', 'keys', 'settings', 'logs', 'health'][Number(event.key) - 1]);
   }
 });
 
@@ -1002,6 +1102,30 @@ $('#keyword-form').addEventListener('submit', async (event) => {
   }
 });
 
+$('#system-settings-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const message = $('#system-settings-message');
+  try {
+    state.settings = await api('/api/admin/settings/system', {
+      method: 'POST',
+      body: JSON.stringify({
+        dashboard_refresh_seconds: Number($('#dashboard-refresh-seconds').value),
+        online_threshold_minutes: Number($('#online-threshold-minutes').value),
+        health_refresh_seconds: Number($('#health-refresh-seconds').value),
+        audit_retention_days: Number($('#audit-retention-days').value),
+      }),
+    });
+    message.className = 'form-message success';
+    message.textContent = 'Đã lưu cấu hình vận hành.';
+    renderDevices();
+    renderMetrics();
+    fetchHealth();
+  } catch (error) {
+    message.className = 'form-message danger';
+    message.textContent = error.message;
+  }
+});
+
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && !appView.hidden) refreshAll({ quiet: true });
 });
@@ -1012,8 +1136,8 @@ setupMapInteractions();
   try {
     await api('/api/admin/session');
     showDashboard();
-    await fetchKeywords();
-    const initialTab = ['devices', 'map', 'keys', 'settings', 'logs'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'devices';
+    await Promise.all([fetchKeywords(), fetchSystemSettings()]);
+    const initialTab = ['devices', 'map', 'keys', 'settings', 'logs', 'health'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'devices';
     switchTab(initialTab);
   } catch (_error) { showLogin(); }
 }());

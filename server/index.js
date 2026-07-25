@@ -1,5 +1,7 @@
 const crypto = require('crypto');
 const express = require('express');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
 
@@ -201,6 +203,7 @@ function auditAction(method, routePath) {
     [/DELETE \/api\/admin\/chat\/messages$/, 'chat.emergency_delete'],
     [/POST \/api\/admin\/chat\/alerts\/[^/]+\/acknowledge$/, 'alert.acknowledge'],
     [/POST \/api\/admin\/settings\/keywords$/, 'settings.update_keywords'],
+    [/POST \/api\/admin\/settings\/system$/, 'settings.update_system'],
   ];
   return rules.find(([pattern]) => pattern.test(route))?.[1] || 'api.mutation';
 }
@@ -714,6 +717,117 @@ app.get('/api/admin/audit-logs', requireAdmin, async (req, res) => {
   } catch (error) {
     console.error('Could not load audit logs:', error);
     fail(res, 500, 'Không thể tải nhật ký');
+  }
+});
+
+app.get('/api/admin/system/health', requireAdmin, async (_req, res) => {
+  try {
+    const [deviceStats, chatStats, auditStats, lastBackup, recentFailures] = await Promise.all([
+      dbGet(`SELECT COUNT(*) AS total,
+                    SUM(CASE WHEN last_seen >= datetime('now', '-5 minutes') THEN 1 ELSE 0 END) AS online,
+                    SUM(CASE WHEN access_key_id IS NOT NULL THEN 1 ELSE 0 END) AS activated
+               FROM devices`),
+      dbGet(`SELECT COUNT(*) AS messages,
+                    (SELECT COUNT(*) FROM chat_alerts WHERE acknowledged = 0) AS open_alerts
+               FROM chat_messages`),
+      dbGet('SELECT COUNT(*) AS total FROM audit_logs'),
+      dbGet("SELECT action, created_at FROM audit_logs WHERE action IN ('backup.success', 'backup.failed') ORDER BY id DESC LIMIT 1"),
+      dbAll(`SELECT action, actor_id, entity_id, details, created_at
+               FROM audit_logs WHERE success = 0 ORDER BY id DESC LIMIT 8`),
+    ]);
+    const processMemory = process.memoryUsage();
+    const disk = fs.statfsSync(path.parse(databasePath).root || '/');
+    const databaseBytes = fs.existsSync(databasePath) ? fs.statSync(databasePath).size : 0;
+    const walPath = `${databasePath}-wal`;
+    const walBytes = fs.existsSync(walPath) ? fs.statSync(walPath).size : 0;
+    res.json({
+      status: 'ok',
+      server_time: new Date().toISOString(),
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      process: {
+        pid: process.pid,
+        node: process.version,
+        uptime_seconds: Math.round(process.uptime()),
+        rss_bytes: processMemory.rss,
+        heap_used_bytes: processMemory.heapUsed,
+        heap_total_bytes: processMemory.heapTotal,
+      },
+      host: {
+        hostname: os.hostname(),
+        platform: `${os.platform()} ${os.release()} ${os.arch()}`,
+        uptime_seconds: Math.round(os.uptime()),
+        cpu_count: os.cpus().length,
+        load_average: os.loadavg(),
+        memory_total_bytes: os.totalmem(),
+        memory_free_bytes: os.freemem(),
+        disk_total_bytes: disk.blocks * disk.bsize,
+        disk_free_bytes: disk.bavail * disk.bsize,
+      },
+      database: { path: databasePath, bytes: databaseBytes, wal_bytes: walBytes },
+      traffic: { realtime_admin_connections: adminStreams.size, rate_limit_buckets: rateBuckets.size },
+      devices: deviceStats,
+      chat: chatStats,
+      audit: auditStats,
+      backup: {
+        cron_enabled: fs.existsSync('/etc/cron.d/rustdesk-kiosk-backup'),
+        google_drive_configured: fs.existsSync('/root/.config/rclone/rclone.conf'),
+        last_action: lastBackup?.action || null,
+        last_at: lastBackup?.created_at || null,
+      },
+      recent_failures: recentFailures.map((item) => ({
+        ...item,
+        details: (() => { try { return JSON.parse(item.details || '{}'); } catch (_error) { return {}; } })(),
+      })),
+    });
+  } catch (error) {
+    console.error('Could not build system health:', error);
+    fail(res, 500, 'Không thể đọc trạng thái server');
+  }
+});
+
+app.get('/api/admin/settings/system', requireAdmin, async (_req, res) => {
+  try {
+    const rows = await dbAll("SELECT key, value FROM settings WHERE key IN ('audit_retention_days', 'health_refresh_seconds', 'dashboard_refresh_seconds', 'online_threshold_minutes')");
+    const values = Object.fromEntries(rows.map((row) => [row.key, Number(row.value)]));
+    res.json({
+      audit_retention_days: values.audit_retention_days || 180,
+      health_refresh_seconds: values.health_refresh_seconds || 15,
+      dashboard_refresh_seconds: values.dashboard_refresh_seconds || 20,
+      online_threshold_minutes: values.online_threshold_minutes || 5,
+    });
+  } catch (_error) {
+    fail(res, 500, 'Không thể tải cấu hình hệ thống');
+  }
+});
+
+app.post('/api/admin/settings/system', requireAdmin, requireSameOrigin, async (req, res) => {
+  const retention = Math.round(Number(req.body.audit_retention_days));
+  const refresh = Math.round(Number(req.body.health_refresh_seconds));
+  const dashboardRefresh = Math.round(Number(req.body.dashboard_refresh_seconds));
+  const onlineThreshold = Math.round(Number(req.body.online_threshold_minutes));
+  if (retention < 7 || retention > 365 || refresh < 5 || refresh > 120
+      || dashboardRefresh < 5 || dashboardRefresh > 120 || onlineThreshold < 1 || onlineThreshold > 30) {
+    return fail(res, 400, 'Cấu hình nằm ngoài giới hạn cho phép');
+  }
+  try {
+    await dbRun(`INSERT INTO settings (key, value) VALUES ('audit_retention_days', ?)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(retention)]);
+    await dbRun(`INSERT INTO settings (key, value) VALUES ('health_refresh_seconds', ?)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(refresh)]);
+    await dbRun(`INSERT INTO settings (key, value) VALUES ('dashboard_refresh_seconds', ?)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(dashboardRefresh)]);
+    await dbRun(`INSERT INTO settings (key, value) VALUES ('online_threshold_minutes', ?)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [String(onlineThreshold)]);
+    await dbRun("DELETE FROM audit_logs WHERE created_at < datetime('now', ?)", [`-${retention} days`]);
+    res.json({
+      audit_retention_days: retention,
+      health_refresh_seconds: refresh,
+      dashboard_refresh_seconds: dashboardRefresh,
+      online_threshold_minutes: onlineThreshold,
+    });
+  } catch (error) {
+    console.error('Could not save system settings:', error);
+    fail(res, 500, 'Không thể lưu cấu hình hệ thống');
   }
 });
 

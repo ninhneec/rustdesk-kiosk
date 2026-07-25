@@ -47,6 +47,7 @@
           <button class="tab-button" data-tab="keys" type="button"><span aria-hidden="true">◇</span><b>Key truy cập</b><small>Cấp và thu hồi</small></button>
           <button class="tab-button" data-tab="settings" type="button"><span aria-hidden="true">⚙</span><b>Cảnh báo</b><small>Từ khóa ưu tiên</small></button>
           <button class="tab-button" data-tab="logs" type="button"><span aria-hidden="true">≡</span><b>Nhật ký</b><small>Mọi hoạt động</small></button>
+          <button class="tab-button" data-tab="health" type="button"><span aria-hidden="true">♥</span><b>Server health</b><small>Tài nguyên và API</small></button>
         </nav>
         <div class="sidebar-help">
           <span>Hệ thống hỗ trợ</span>
@@ -210,6 +211,37 @@
             <tbody id="audit-log-list"></tbody>
           </table>
         </div>
+      </section>
+
+      <section id="tab-health" class="tab-panel health-layout" hidden>
+        <article class="panel health-overview">
+          <div class="panel-heading toolbar-heading">
+            <div><p class="eyebrow">SYSTEM HEALTH</p><h2>Trạng thái VPS và dịch vụ</h2></div>
+            <button id="refresh-health-btn" class="button primary compact" type="button">Kiểm tra ngay</button>
+          </div>
+          <div id="health-summary" class="health-summary"></div>
+          <div class="health-columns">
+            <section><h3>Tiến trình</h3><dl id="health-process"></dl></section>
+            <section><h3>Máy chủ</h3><dl id="health-host"></dl></section>
+            <section><h3>Dữ liệu</h3><dl id="health-data"></dl></section>
+            <section><h3>Backup & realtime</h3><dl id="health-services"></dl></section>
+          </div>
+          <div class="health-failures">
+            <h3>Lỗi gần nhất</h3>
+            <div id="health-failure-list"></div>
+          </div>
+        </article>
+        <article class="panel">
+          <div class="panel-heading"><div><p class="eyebrow">SETTINGS</p><h2>Cấu hình vận hành</h2></div></div>
+          <form id="system-settings-form" class="stack-form">
+            <label>Refresh dashboard (giây)<input id="dashboard-refresh-seconds" type="number" min="5" max="120"></label>
+            <label>Máy được tính online trong (phút)<input id="online-threshold-minutes" type="number" min="1" max="30"></label>
+            <label>Refresh server health (giây)<input id="health-refresh-seconds" type="number" min="5" max="120"></label>
+            <label>Giữ audit log (ngày)<input id="audit-retention-days" type="number" min="7" max="365"></label>
+            <button class="button primary wide" type="submit">Lưu cấu hình</button>
+            <span id="system-settings-message" class="form-message"></span>
+          </form>
+        </article>
       </section>
       </main>
     </div>
