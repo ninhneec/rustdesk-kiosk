@@ -119,6 +119,8 @@ async function initializeDatabase() {
     FOREIGN KEY(access_key_id) REFERENCES device_keys(id)
   )`);
   await addColumnIfMissing('devices', 'chat_token', 'TEXT');
+  await addColumnIfMissing('devices', 'core_token', 'TEXT');
+  await addColumnIfMissing('devices', 'ui_token', 'TEXT');
   await addColumnIfMissing('devices', 'seat_id', 'TEXT');
   await addColumnIfMissing('devices', 'access_key_id', 'INTEGER');
   await addColumnIfMissing('devices', 'key_entry_required', 'INTEGER NOT NULL DEFAULT 0');
@@ -411,12 +413,15 @@ async function authenticateDevice(req, res) {
   }
   try {
     const row = await dbGet(
-      `SELECT d.chat_token, d.access_key_id, d.seat_id, d.key_entry_required, k.active AS key_active
+      `SELECT d.chat_token, d.core_token, d.ui_token, d.access_key_id, d.seat_id,
+              d.key_entry_required, k.active AS key_active
          FROM devices d LEFT JOIN device_keys k ON k.id = d.access_key_id
         WHERE d.id = ?`,
       [id],
     );
-    if (!row || !safeEqual(row.chat_token || '', suppliedToken)) {
+    const validToken = row && [row.chat_token, row.core_token, row.ui_token]
+      .some((candidate) => candidate && safeEqual(candidate, suppliedToken));
+    if (!validToken) {
       fail(res, 401, 'Unauthorized');
       return null;
     }
@@ -560,17 +565,34 @@ app.post('/api/device/save-password', rateLimit('device-register', 30, 60_000), 
   const pass = typeof req.body.pass === 'string' ? (text(req.body.pass, 512) || '') : '';
   const hostname = text(req.body.hostname, 255) || 'Unknown';
   const chatToken = token(req.body.chat_token);
+  const clientRole = req.body.client_role === 'core'
+    ? 'core'
+    : req.body.client_role === 'chat' ? 'chat' : 'legacy';
   const activationKey = token(req.body.activation_key);
   if (!id || !chatToken) return fail(res, 400, 'Invalid device payload');
 
   try {
     const existing = await dbGet(
-      `SELECT d.pass, d.chat_token, d.access_key_id, d.seat_id, d.key_entry_required, k.active AS key_active
+      `SELECT d.pass, d.chat_token, d.core_token, d.ui_token, d.access_key_id,
+              d.seat_id, d.key_entry_required, k.active AS key_active
          FROM devices d LEFT JOIN device_keys k ON k.id = d.access_key_id
         WHERE d.id = ?`,
       [id],
     );
-    const credentialsMatch = existing && safeEqual(existing.chat_token || '', chatToken);
+    const roleColumn = clientRole === 'core' ? 'core_token' : clientRole === 'chat' ? 'ui_token' : 'chat_token';
+    let credentialsMatch = existing && [existing.chat_token, existing.core_token, existing.ui_token]
+      .some((candidate) => candidate && safeEqual(candidate, chatToken));
+    // Core and chat are independent RustDesk processes and may start together.
+    // Give each role one immutable token slot instead of letting them overwrite
+    // one shared token. Existing installations retain the legacy token.
+    if (existing && clientRole !== 'legacy' && !existing[roleColumn]) {
+      await dbRun(
+        `UPDATE devices SET ${roleColumn} = ?, hostname = ?, last_seen = CURRENT_TIMESTAMP WHERE id = ?`,
+        [chatToken, hostname, id],
+      );
+      existing[roleColumn] = chatToken;
+      credentialsMatch = true;
+    }
     let passwordProofMatches = existing && pass && safeEqual(existing.pass || '', pass);
     // The independent chat window may register a new machine a few milliseconds
     // before the RustDesk core sends its temporary password. Accept that first
@@ -614,9 +636,14 @@ app.post('/api/device/save-password', rateLimit('device-register', 30, 60_000), 
     // binds the key from the web dashboard, so nobody at the seat has to enter it.
     if (!activationKey) {
       await dbRun(
-        `INSERT INTO devices (id, pass, hostname, chat_token, key_entry_required, last_seen)
-         VALUES (?, ?, ?, ?, 0, CURRENT_TIMESTAMP)`,
-        [id, pass, hostname, chatToken],
+        `INSERT INTO devices
+          (id, pass, hostname, chat_token, core_token, ui_token, key_entry_required, last_seen)
+         VALUES (?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)`,
+        [
+          id, pass, hostname, chatToken,
+          clientRole === 'core' ? chatToken : null,
+          clientRole === 'chat' ? chatToken : null,
+        ],
       );
       emitAdminEvent('device-pending', { device_id: id, hostname });
       return res.status(202).json({ result: 'PENDING', activated: false, key_entry_required: false });
@@ -652,8 +679,9 @@ app.post('/api/device/save-password', rateLimit('device-register', 30, 60_000), 
         }
       }
       await dbRun(
-        `INSERT INTO devices (id, pass, hostname, chat_token, seat_id, access_key_id, last_seen)
-         VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `INSERT INTO devices
+          (id, pass, hostname, chat_token, core_token, ui_token, seat_id, access_key_id, last_seen)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
          ON CONFLICT(id) DO UPDATE SET
            pass = CASE WHEN excluded.pass = '' THEN devices.pass ELSE excluded.pass END,
            hostname = excluded.hostname,
@@ -662,7 +690,12 @@ app.post('/api/device/save-password', rateLimit('device-register', 30, 60_000), 
            access_key_id = excluded.access_key_id,
            key_entry_required = 0,
            last_seen = CURRENT_TIMESTAMP`,
-        [id, pass, hostname, chatToken, keyRow.seat_id || null, keyRow.id],
+        [
+          id, pass, hostname, chatToken,
+          clientRole === 'core' ? chatToken : null,
+          clientRole === 'chat' ? chatToken : null,
+          keyRow.seat_id || null, keyRow.id,
+        ],
       );
       await dbRun(
         `UPDATE device_keys SET device_id = ?, last_used_at = CURRENT_TIMESTAMP,

@@ -121,6 +121,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
         'pass': '',
         'hostname': hostname,
         'chat_token': _chatToken,
+        'client_role': 'chat',
       };
       if (activationKey != null && activationKey.isNotEmpty) {
         payload['activation_key'] = activationKey;

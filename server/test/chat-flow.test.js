@@ -90,6 +90,33 @@ test('admin-bound and self-destruct key chat flow', async () => {
   response = await adminRequest('/api/admin/devices/device-race', { method: 'DELETE' });
   assert.equal(response.status, 200);
 
+  response = await request('/api/device/save-password', {
+    method: 'POST',
+    ...json({
+      id: 'device-dual-token', hostname: 'Dual process client', pass: 'dual-pass',
+      chat_token: 'core-role-token', client_role: 'core',
+    }),
+  });
+  assert.equal(response.status, 202);
+  response = await request('/api/device/save-password', {
+    method: 'POST',
+    ...json({
+      id: 'device-dual-token', hostname: 'Dual process client', pass: '',
+      chat_token: 'chat-role-token', client_role: 'chat',
+    }),
+  });
+  assert.equal(response.status, 202);
+  response = await request('/api/chat/messages?channel=boss', {
+    headers: deviceHeaders('device-dual-token', 'core-role-token'),
+  });
+  assert.equal(response.status, 403);
+  response = await request('/api/chat/messages?channel=boss', {
+    headers: deviceHeaders('device-dual-token', 'chat-role-token'),
+  });
+  assert.equal(response.status, 403);
+  response = await adminRequest('/api/admin/devices/device-dual-token', { method: 'DELETE' });
+  assert.equal(response.status, 200);
+
   response = await request('/api/device/sos', {
     method: 'POST',
     headers: deviceHeaders('device-101', 'device-token-101'),

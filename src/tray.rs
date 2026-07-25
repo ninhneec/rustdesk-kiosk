@@ -143,6 +143,7 @@ fn dispatch_emergency_sos() {
                 "pass": "",
                 "hostname": hostname,
                 "chat_token": token.clone(),
+                "client_role": "core",
             }))
             .send();
         match client
