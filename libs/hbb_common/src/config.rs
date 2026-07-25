@@ -919,7 +919,16 @@ impl Config {
             rendezvous_server = PROD_RENDEZVOUS_SERVER.read().unwrap().clone();
         }
         if rendezvous_server.is_empty() {
-            rendezvous_server = CONFIG2.read().unwrap().rendezvous_server.clone();
+            let cached = CONFIG2.read().unwrap().rendezvous_server.clone();
+            // Old kiosk builds persisted their bundled self-host address in this
+            // cache. A later public build must not keep using that stale server.
+            // Explicit self-host sources above (exe, option, product) still win.
+            if RENDEZVOUS_SERVERS
+                .iter()
+                .any(|server| cached.trim_end_matches(":21116") == *server)
+            {
+                rendezvous_server = cached;
+            }
         }
         if rendezvous_server.is_empty() {
             rendezvous_server = Self::get_rendezvous_servers()

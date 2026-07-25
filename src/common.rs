@@ -1817,7 +1817,14 @@ pub async fn get_key(sync: bool) -> String {
         let mut options = crate::ipc::get_options_async().await;
         options.remove("key").unwrap_or_default()
     };
-    if key.is_empty() {
+    let uses_public_rendezvous = Config::get_option("custom-rendezvous-server").is_empty()
+        && config::EXE_RENDEZVOUS_SERVER.read().unwrap().is_empty()
+        && config::PROD_RENDEZVOUS_SERVER.read().unwrap().is_empty();
+    if key.is_empty() || uses_public_rendezvous {
+        // A public build can inherit the key saved by an older self-host build
+        // because both editions share the same config directory. Public servers
+        // must always use RustDesk's public key; explicit self-host builds above
+        // continue to use their configured key.
         key = config::RS_PUB_KEY.to_owned();
     }
     key

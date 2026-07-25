@@ -9,6 +9,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 pub fn start_tray() {
+    #[cfg(windows)]
+    start_global_chat_hotkeys();
+
     if crate::ui_interface::get_builtin_option(hbb_common::config::keys::OPTION_HIDE_TRAY) == "Y" {
         #[cfg(not(target_os = "macos"))]
         {
@@ -20,6 +23,96 @@ pub fn start_tray() {
     crate::server::check_zombie();
 
     allow_err!(make_tray());
+}
+
+fn dispatch_global_chat_trigger(toggle: bool) {
+    #[cfg(windows)]
+    {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+        use winapi::um::winuser::{
+            FindWindowW, IsIconic, IsWindowVisible, SetForegroundWindow, ShowWindow, SW_HIDE,
+            SW_RESTORE, SW_SHOW,
+        };
+
+        let window_name: Vec<u16> = OsStr::new("RustDesk - Support Chat")
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+
+        unsafe {
+            // Match by the stable title instead of a runner class. Packaged Flutter
+            // builds can register a different class, while the title is controlled by us.
+            let hwnd = FindWindowW(std::ptr::null(), window_name.as_ptr());
+            if !hwnd.is_null() {
+                // The chat owns its own process and stays alive while hidden.
+                // Repeating the hotkey toggles the same independent window.
+                if toggle && IsWindowVisible(hwnd) != 0 && IsIconic(hwnd) == 0 {
+                    ShowWindow(hwnd, SW_HIDE);
+                } else {
+                    ShowWindow(hwnd, SW_SHOW);
+                    ShowWindow(hwnd, SW_RESTORE);
+                    SetForegroundWindow(hwnd);
+                }
+                return;
+            }
+        }
+    }
+    let _ = crate::run_me(vec!["--global-chat"]);
+}
+
+#[cfg(windows)]
+fn start_global_chat_hotkeys() {
+    std::thread::spawn(|| {
+        use winapi::um::winuser::{
+            DispatchMessageW, GetMessageW, PeekMessageW, RegisterHotKey, TranslateMessage, MOD_ALT,
+            MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MSG, PM_NOREMOVE, WM_HOTKEY, WM_USER,
+        };
+        const VK_F12: u32 = 0x7B;
+        const VK_C: u32 = 0x43;
+        unsafe {
+            // Force creation of a Win32 message queue for this thread.
+            let mut dummy_msg: MSG = std::mem::zeroed();
+            PeekMessageW(
+                &mut dummy_msg,
+                std::ptr::null_mut(),
+                WM_USER,
+                WM_USER,
+                PM_NOREMOVE,
+            );
+
+            let r1 = RegisterHotKey(
+                std::ptr::null_mut(),
+                1001,
+                MOD_CONTROL as u32 | MOD_SHIFT as u32 | MOD_NOREPEAT as u32,
+                VK_F12,
+            );
+            let r2 = RegisterHotKey(
+                std::ptr::null_mut(),
+                1002,
+                MOD_ALT as u32 | MOD_SHIFT as u32 | MOD_NOREPEAT as u32,
+                VK_C,
+            );
+
+            if r1 != 0 || r2 != 0 {
+                log::info!(
+                    "Global hotkeys registered (Ctrl+Shift+F12: {}, Alt+Shift+C: {})",
+                    r1 != 0,
+                    r2 != 0
+                );
+                let mut msg: MSG = std::mem::zeroed();
+                while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
+                    if msg.message == WM_HOTKEY && (msg.wParam == 1001 || msg.wParam == 1002) {
+                        dispatch_global_chat_trigger(true);
+                    }
+                    TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                }
+            } else {
+                log::error!("Failed to register hotkeys Ctrl+Shift+F12 and Alt+Shift+C");
+            }
+        }
+    });
 }
 
 fn make_tray() -> hbb_common::ResultType<()> {
@@ -54,13 +147,17 @@ fn make_tray() -> hbb_common::ResultType<()> {
     let mut event_loop = EventLoopBuilder::new().build();
 
     let tray_menu = Menu::new();
-    let hide_stop_service = crate::ui_interface::get_builtin_option(
-        hbb_common::config::keys::OPTION_HIDE_STOP_SERVICE,
-    ) == "Y";
+    let hide_stop_service =
+        crate::ui_interface::get_builtin_option(hbb_common::config::keys::OPTION_HIDE_STOP_SERVICE)
+            == "Y";
     // The tray icon is only shown when the service is running, so we don't need to check
     // the `stop-service` option here.
     let quit_i = if !hide_stop_service {
-        Some(MenuItem::new(translate("Stop service".to_owned()), true, None))
+        Some(MenuItem::new(
+            translate("Stop service".to_owned()),
+            true,
+            None,
+        ))
     } else {
         None
     };
@@ -68,7 +165,7 @@ fn make_tray() -> hbb_common::ResultType<()> {
     // [CUSTOM KIOSK MODE]
     let support_i = MenuItem::new("Yêu cầu Hỗ trợ".to_owned(), true, None);
     // [/CUSTOM KIOSK MODE]
-    
+
     if let Some(quit_i) = &quit_i {
         tray_menu.append_items(&[&open_i, &support_i, quit_i]).ok();
     } else {
@@ -107,82 +204,6 @@ fn make_tray() -> hbb_common::ResultType<()> {
     std::thread::spawn(move || {
         start_query_session_count(ipc_sender.clone());
     });
-    
-fn dispatch_global_chat_trigger(toggle: bool) {
-    #[cfg(windows)]
-    {
-        use std::ffi::OsStr;
-        use std::os::windows::ffi::OsStrExt;
-        use winapi::um::winuser::{FindWindowW, IsWindowVisible, SetForegroundWindow, ShowWindow, SW_HIDE, SW_RESTORE, SW_SHOW};
-
-        let class_name: Vec<u16> = OsStr::new("FLUTTER_RUNNER_WIN32_WINDOW")
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-        let window_name: Vec<u16> = OsStr::new("RustDesk - Support Chat")
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-
-        unsafe {
-            let hwnd = FindWindowW(class_name.as_ptr(), window_name.as_ptr());
-            if !hwnd.is_null() {
-                // The chat owns its own process and stays alive while hidden.
-                // Repeating the hotkey toggles the same independent window.
-                if toggle && IsWindowVisible(hwnd) != 0 {
-                    ShowWindow(hwnd, SW_HIDE);
-                } else {
-                    ShowWindow(hwnd, SW_SHOW);
-                    ShowWindow(hwnd, SW_RESTORE);
-                    SetForegroundWindow(hwnd);
-                }
-                return;
-            }
-        }
-    }
-    let _ = crate::run_me(vec!["--global-chat"]);
-}
-
-    // [CUSTOM KIOSK MODE]
-    // Register Global Hotkeys:
-    // Primary: Ctrl + Shift + F12
-    // Backup: Alt + Shift + C
-    #[cfg(windows)]
-    {
-        std::thread::spawn(|| {
-            use winapi::um::winuser::{
-                RegisterHotKey, GetMessageW, TranslateMessage, DispatchMessageW, MSG,
-                PeekMessageW, PM_NOREMOVE, WM_USER, MOD_CONTROL, MOD_SHIFT, MOD_ALT, WM_HOTKEY
-            };
-            const VK_F12: u32 = 0x7B;
-            const VK_C: u32 = 0x43;
-            unsafe {
-                // Force creation of Win32 message queue for this thread
-                let mut dummy_msg: MSG = std::mem::zeroed();
-                PeekMessageW(&mut dummy_msg, std::ptr::null_mut(), WM_USER, WM_USER, PM_NOREMOVE);
-
-                let r1 = RegisterHotKey(std::ptr::null_mut(), 1001, MOD_CONTROL as u32 | MOD_SHIFT as u32, VK_F12);
-                let r2 = RegisterHotKey(std::ptr::null_mut(), 1002, MOD_ALT as u32 | MOD_SHIFT as u32, VK_C);
-                
-                if r1 != 0 || r2 != 0 {
-                    log::info!("Global hotkeys registered (Ctrl+Shift+F12: {}, Alt+Shift+C: {})", r1 != 0, r2 != 0);
-                    let mut msg: MSG = std::mem::zeroed();
-                    while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
-                        if msg.message == WM_HOTKEY && (msg.wParam == 1001 || msg.wParam == 1002) {
-                            let _ = std::thread::spawn(|| {
-                                dispatch_global_chat_trigger(true);
-                            });
-                        }
-                        TranslateMessage(&msg);
-                        DispatchMessageW(&msg);
-                    }
-                } else {
-                    log::error!("Failed to register hotkeys Ctrl+Shift+F12 and Alt+Shift+C");
-                }
-            }
-        });
-    }
-    // [/CUSTOM KIOSK MODE]
 
     #[cfg(windows)]
     let mut last_click = std::time::Instant::now();
@@ -199,7 +220,9 @@ fn dispatch_global_chat_trigger(toggle: bool) {
         if let tao::event::Event::NewEvents(tao::event::StartCause::Init) = event {
             // for fixing https://github.com/rustdesk/rustdesk/discussions/10210#discussioncomment-14600745
             // so we start tray, but not to show it
-            if crate::ui_interface::get_builtin_option(hbb_common::config::keys::OPTION_HIDE_TRAY) == "Y" {
+            if crate::ui_interface::get_builtin_option(hbb_common::config::keys::OPTION_HIDE_TRAY)
+                == "Y"
+            {
                 return;
             }
             // We create the icon once the event loop is actually running

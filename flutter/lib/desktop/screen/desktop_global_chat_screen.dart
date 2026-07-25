@@ -341,7 +341,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
                 borderRadius: BorderRadius.circular(18),
                 child: Container(
                   decoration: BoxDecoration(
-                    color: const Color(0xE6122033),
+                    color: const Color(0xD6122033),
                     border: Border.all(color: const Color(0x334DDCCB)),
                     borderRadius: BorderRadius.circular(18),
                   ),
@@ -370,7 +370,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
         height: 48,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: const BoxDecoration(
-          color: Color(0xB814263B),
+          color: Color(0xA814263B),
           border:
               Border(bottom: BorderSide(color: Color(0x334DDCCB), width: 1)),
         ),

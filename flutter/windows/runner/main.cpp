@@ -77,7 +77,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                 "--global-chat") != command_line_arguments.end();
   if (requests_global_chat) {
     HWND chat_hwnd =
-        ::FindWindowW(getWindowClassName(), L"RustDesk - Support Chat");
+        ::FindWindowW(nullptr, L"RustDesk - Support Chat");
     if (chat_hwnd != NULL) {
       ::ShowWindow(chat_hwnd, SW_RESTORE);
       ::SetForegroundWindow(chat_hwnd);
@@ -148,11 +148,18 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   Win32Desktop::GetWorkArea(workarea_origin, workarea_size);
 
-  // Compute window bounds for default main window position: (10, 10) x(800, 600)
-  Win32Window::Point relative_origin(10, 10);
-
-  Win32Window::Point origin(workarea_origin.x + relative_origin.x, workarea_origin.y + relative_origin.y);
   Win32Window::Size size(800u, 600u);
+  // Create the chat at its final size. Avoiding an 800x600 -> 360x540 resize
+  // during Flutter startup removes the visible flash and most toggle jank.
+  if (is_global_chat) {
+    size = Win32Window::Size(360u, 540u);
+  }
+
+  Win32Window::Point origin(
+      is_global_chat
+          ? workarea_origin.x + workarea_size.width - size.width - 24
+          : workarea_origin.x + 10,
+      is_global_chat ? workarea_origin.y + 24 : workarea_origin.y + 10);
 
   // Fit the window to the monitor's work area.
   Win32Desktop::FitToWorkArea(origin, size);
