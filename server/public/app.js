@@ -113,6 +113,7 @@ async function fetchDevices() {
 async function fetchAlerts() {
   state.alerts = await api('/api/admin/chat/alerts');
   renderAlerts();
+  renderMap();
   renderMetrics();
 }
 
@@ -455,8 +456,11 @@ function renderMap() {
     roomRow.seats.forEach((seatNumber, index) => {
       const seat = `M${String(seatNumber).padStart(2, '0')}`;
       const device = bySeat.get(seat);
+      const deskAlerts = device ? state.alerts.filter((alert) => alert.device_id === device.id) : [];
+      const urgentAlerts = deskAlerts.filter((alert) => alert.priority === 'urgent');
       const status = !device ? '' : !isActive(device) ? 'pending assigned' : isOnline(device) ? 'online assigned' : 'offline assigned';
-      const desk = element('button', `desk ${index % 2 === 0 ? 'upper' : 'lower'} ${status}`.trim());
+      const alertStatus = urgentAlerts.length ? 'has-urgent-alert' : deskAlerts.length ? 'has-chat-alert' : '';
+      const desk = element('button', `desk ${index % 2 === 0 ? 'upper' : 'lower'} ${status} ${alertStatus}`.trim());
       desk.type = 'button';
       desk.title = `${roomRow.label} · Số ảnh ${roomRow.photo[index]} · Ghế ${seat}`;
 
@@ -470,6 +474,14 @@ function renderMap() {
       codes.append(photoCode, seatCode);
       const deviceName = element('span', 'desk-device', device ? (device.hostname || device.id) : 'Chưa gán máy');
       desk.append(equipment, codes, deviceName);
+      if (deskAlerts.length) {
+        const badge = element('span', `desk-alert-badge ${urgentAlerts.length ? 'urgent' : ''}`, String(Math.min(deskAlerts.length, 99)));
+        badge.title = urgentAlerts.length
+          ? `${urgentAlerts.length} tin khẩn · ${deskAlerts.length} tin chưa xử lý`
+          : `${deskAlerts.length} tin chưa xử lý`;
+        badge.setAttribute('aria-label', badge.title);
+        desk.append(badge);
+      }
       const selectDesk = () => {
         grid.querySelector('.desk.selected')?.classList.remove('selected');
         desk.classList.add('selected');
@@ -910,6 +922,7 @@ async function acknowledgeAlert(id) {
     await api(`/api/admin/chat/alerts/${id}/acknowledge`, { method: 'POST' });
     state.alerts = state.alerts.filter((alert) => alert.id !== id);
     renderAlerts();
+    renderMap();
     renderMetrics();
   } catch (error) { notify(`Không xử lý được cảnh báo: ${error.message}`); }
 }

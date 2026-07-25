@@ -698,6 +698,41 @@ tbody tr:nth-child(even) { background: rgba(255,255,255,.012); }
 .desk-chair::after { border-color: #526879; }
 .desk.online { border-color: #32c997; box-shadow: 0 0 0 2px rgba(50, 201, 151, .12); }
 .desk.pending { border-color: #e4ae3a; }
+.desk-alert-badge {
+  position: absolute;
+  z-index: 5;
+  top: -10px;
+  right: -10px;
+  min-width: 23px;
+  height: 23px;
+  display: grid;
+  place-items: center;
+  padding: 0 5px;
+  border: 2px solid #0d1a26;
+  border-radius: 8px;
+  color: #08131d;
+  background: #f3c653;
+  box-shadow: 0 5px 16px rgba(243, 198, 83, .35);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+}
+.desk-alert-badge.urgent {
+  color: #fff;
+  background: #ef5368;
+  box-shadow: 0 0 0 0 rgba(239, 83, 104, .55), 0 7px 20px rgba(239, 83, 104, .42);
+  animation: urgent-desk-ping 1.25s ease-out infinite;
+}
+.desk.has-chat-alert { border-color: #d8ae45; }
+.desk.has-urgent-alert {
+  border-color: #ef5368;
+  box-shadow: 0 0 0 3px rgba(239, 83, 104, .12), 0 8px 24px rgba(239, 83, 104, .18);
+}
+@keyframes urgent-desk-ping {
+  0% { box-shadow: 0 0 0 0 rgba(239, 83, 104, .55), 0 7px 20px rgba(239, 83, 104, .42); }
+  65%, 100% { box-shadow: 0 0 0 12px rgba(239, 83, 104, 0), 0 7px 20px rgba(239, 83, 104, .28); }
+}
 .teacher-desk {
   border: 1px solid #456174;
   border-radius: 7px;
