@@ -191,6 +191,25 @@ function fillHealthDetails(selector, entries) {
   });
 }
 
+function bindChartTooltip(svg, samples, formatter) {
+  const tooltip = $('#chart-tooltip');
+  const hide = () => { tooltip.hidden = true; };
+  svg.onpointerleave = hide;
+  svg.onpointercancel = hide;
+  svg.onpointermove = (event) => {
+    if (!samples.length) return hide();
+    const bounds = svg.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (event.clientX - bounds.left) / Math.max(1, bounds.width)));
+    const index = Math.round(ratio * Math.max(0, samples.length - 1));
+    tooltip.textContent = formatter(samples[index], index);
+    tooltip.hidden = false;
+    const tooltipBounds = tooltip.getBoundingClientRect();
+    const left = Math.min(window.innerWidth - tooltipBounds.width - 10, event.clientX + 14);
+    const top = Math.max(10, event.clientY - tooltipBounds.height - 14);
+    tooltip.style.transform = `translate3d(${Math.max(10, left)}px, ${top}px, 0)`;
+  };
+}
+
 function percentage(value, total) {
   return total > 0 ? Math.max(0, Math.min(100, (value / total) * 100)) : 0;
 }
@@ -243,6 +262,10 @@ function renderHealthHistory() {
   $('#chart-legend-cpu').textContent = `CPU ${Number(last.cpu).toFixed(1)}% · scale 0–${cpuCeiling}%`;
   $('#chart-legend-ram').textContent = `RAM ${Number(last.ram).toFixed(1)}%`;
   $('#chart-legend-disk').textContent = `Ổ đĩa ${Number(last.disk).toFixed(1)}%`;
+  bindChartTooltip(svg, history, (sample) => {
+    const time = serverDate(sample.createdAt)?.toLocaleString('vi-VN') || 'Không rõ thời gian';
+    return `${time}\nCPU  ${Number(sample.cpu).toFixed(2)}%\nRAM  ${Number(sample.ram).toFixed(2)}%\nỔ đĩa  ${Number(sample.disk).toFixed(2)}%`;
+  });
   const bandwidthSamples = history.filter((sample) => sample.networkAvailable);
   const maxRate = Math.max(1, ...bandwidthSamples.flatMap((sample) => [sample.rxRate, sample.txRate]));
   const bandwidthHeight = 100;
@@ -257,6 +280,10 @@ function renderHealthHistory() {
     <path class="chart-line download" d="${bandwidthPath('rxRate')}"/>
     <path class="chart-line upload" d="${bandwidthPath('txRate')}"/>
   ` : '<text x="360" y="58" text-anchor="middle">Cần thêm một lần đo để tính tốc độ</text>';
+  bindChartTooltip(bandwidthSvg, bandwidthSamples, (sample) => {
+    const time = serverDate(sample.createdAt)?.toLocaleString('vi-VN') || 'Không rõ thời gian';
+    return `${time}\nRX vào  ${formatBytes(sample.rxRate)}/s\nTX ra  ${formatBytes(sample.txRate)}/s`;
+  });
   $('#network-rate').textContent = last.networkAvailable
     ? `↓ ${formatBytes(last.rxRate)}/s · ↑ ${formatBytes(last.txRate)}/s`
     : 'Linux VPS sẽ hiển thị sau lần đo thứ hai';
@@ -325,6 +352,11 @@ function renderBandwidthAccounting(health) {
   }).join('');
   svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
   svg.innerHTML = `<g class="chart-grid"><path d="M0 0H920M0 50H920M0 100H920M0 150H920"/></g>${bars}`;
+  bindChartTooltip(svg, recent, (day) => {
+    const rx = Number(day.rx_bytes || 0);
+    const tx = Number(day.tx_bytes || 0);
+    return `${day.day} (UTC)\nRX vào  ${formatBytes(rx)}\nTX ra  ${formatBytes(tx)}\nTổng  ${formatBytes(rx + tx)}`;
+  });
 }
 
 function renderHealth(health) {
