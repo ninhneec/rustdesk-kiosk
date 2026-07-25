@@ -870,6 +870,17 @@ tbody tr:nth-child(even) { background: rgba(255,255,255,.012); }
 }
 .device-taxonomy-controls { display: flex; flex-wrap: wrap; gap: 5px; }
 .device-tag-select { border-left: 3px solid var(--tag-color, #7890a1); }
+.grouped-device-sections { display: grid; gap: 10px; padding: 14px; border-top: 1px solid var(--line); background: rgba(4,13,23,.18); }
+.grouped-device-sections:empty { display: none; }
+.grouped-device-section { overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: rgba(10,25,39,.72); }
+.grouped-device-section > summary { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; align-items: center; gap: 11px; padding: 11px 13px; cursor: pointer; user-select: none; list-style: none; }
+.grouped-device-section > summary::-webkit-details-marker { display: none; }
+.grouped-device-section > summary:hover { background: rgba(255,255,255,.025); }
+.grouped-device-section > summary div { display: grid; gap: 2px; }
+.grouped-device-section > summary strong { color: #e8f1f5; font-size: .75rem; }
+.grouped-device-section > summary small, .group-section-hint { color: var(--muted); font-size: .58rem; }
+.grouped-device-section[open] > summary { border-bottom: 1px solid var(--line); }
+.grouped-table-wrap { border-radius: 0; }
 @media (max-width: 900px) {
   .groups-layout { grid-template-columns: 1fr; }
 }

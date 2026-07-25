@@ -86,7 +86,7 @@
 
       <section id="tab-devices" class="tab-panel panel">
         <div class="panel-heading toolbar-heading">
-          <div><p class="eyebrow">THIẾT BỊ</p><h2>Máy đã đăng ký</h2></div>
+          <div><p class="eyebrow">THIẾT BỊ</p><h2>Máy chưa phân nhóm</h2><small class="map-note">Máy đã gán nhóm được chuyển xuống khu vực nhóm bên dưới.</small></div>
           <div class="toolbar">
             <label class="search-control"><span aria-hidden="true">⌕</span><input id="search-input" type="search" placeholder="Tìm hostname, ID, ghế…"></label>
             <label class="filter-control" aria-label="Lọc trạng thái">
@@ -109,6 +109,7 @@
             <tbody id="device-list"></tbody>
           </table>
         </div>
+        <div id="grouped-device-sections" class="grouped-device-sections"></div>
       </section>
 
       <section id="tab-map" class="tab-panel panel" hidden>
@@ -364,6 +365,6 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <div id="chart-tooltip" class="chart-tooltip" role="tooltip" hidden></div>
-  <script src="app.js?v=p204-map-19"></script>
+  <script src="app.js?v=p204-map-20"></script>
 </body>
 </html>

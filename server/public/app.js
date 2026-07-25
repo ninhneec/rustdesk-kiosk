@@ -485,13 +485,51 @@ function renderMetrics() {
   $('#metric-pending').textContent = state.devices.filter((device) => !isActive(device)).length;
 }
 
+function renderGroupedDeviceSections(devices, renderedRows) {
+  const container = $('#grouped-device-sections');
+  container.replaceChildren();
+  state.groups.forEach((group) => {
+    const groupedDevices = devices.filter((device) => Number(device.group_id) === Number(group.id));
+    if (!groupedDevices.length) return;
+    const section = element('details', 'grouped-device-section');
+    const savedState = localStorage.getItem(`kiosk-device-group-open-${group.id}`);
+    section.open = savedState === null ? true : savedState === '1';
+    section.addEventListener('toggle', () => {
+      localStorage.setItem(`kiosk-device-group-open-${group.id}`, section.open ? '1' : '0');
+    });
+    const summary = element('summary');
+    const dot = element('i', 'group-color-dot');
+    dot.style.background = group.color;
+    const title = element('div');
+    title.append(element('strong', '', group.name), element('small', '', `${groupedDevices.length} máy đang hiển thị`));
+    summary.append(dot, title, element('span', 'group-section-hint', section.open ? 'Thu gọn' : 'Mở nhóm'));
+    section.addEventListener('toggle', () => {
+      summary.querySelector('.group-section-hint').textContent = section.open ? 'Thu gọn' : 'Mở nhóm';
+    });
+    const wrap = element('div', 'table-wrap grouped-table-wrap');
+    const table = element('table');
+    const head = element('thead');
+    head.innerHTML = '<tr><th>Kết nối</th><th>Quyền chat</th><th>Máy</th><th>RustDesk ID</th><th>Mật khẩu</th><th>Vị trí</th><th>Chat key</th><th>Cập nhật</th><th>Thao tác</th></tr>';
+    const body = element('tbody');
+    groupedDevices.forEach((device) => {
+      const row = renderedRows.get(device.id);
+      if (row) body.append(row);
+    });
+    table.append(head, body);
+    wrap.append(table);
+    section.append(summary, wrap);
+    container.append(section);
+  });
+}
+
 function renderDevices() {
   const body = $('#device-list');
   body.replaceChildren();
+  $('#grouped-device-sections').replaceChildren();
   const query = $('#search-input').value.trim().toLocaleLowerCase('vi');
   const statusFilter = $('#status-filter').value;
   const devices = state.devices.filter((device) => {
-    const searchable = `${device.hostname || ''} ${device.id} ${device.seat_id || ''} ${device.key_label || ''}`.toLocaleLowerCase('vi');
+    const searchable = `${device.hostname || ''} ${device.id} ${device.seat_id || ''} ${device.key_label || ''} ${device.group_name || ''} ${device.device_tag || ''}`.toLocaleLowerCase('vi');
     const matchesStatus = statusFilter === 'all'
       || (statusFilter === 'online' && isOnline(device))
       || (statusFilter === 'pending' && !isActive(device))
@@ -525,6 +563,7 @@ function renderDevices() {
     return;
   }
 
+  const renderedRows = new Map();
   devices.forEach((device) => {
     const active = isActive(device);
     const online = isOnline(device);
@@ -618,7 +657,16 @@ function renderDevices() {
     actionsCell.append(actions);
     row.append(connectionCell, accessCell, machineCell, idCell, passwordCell, seatCell, keyCell, lastCell, actionsCell);
     body.append(row);
+    renderedRows.set(device.id, row);
   });
+  renderGroupedDeviceSections(devices, renderedRows);
+  if (!body.children.length) {
+    const row = element('tr');
+    const cell = element('td', 'empty-state', 'Không có máy chưa phân nhóm phù hợp bộ lọc.');
+    cell.colSpan = 9;
+    row.append(cell);
+    body.append(row);
+  }
 }
 
 const auditLabels = {
