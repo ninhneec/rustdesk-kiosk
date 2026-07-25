@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -140,7 +141,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
     try {
       _deviceId = await bind.mainGetMyId();
       _chatToken = bind.mainGetLocalOption(key: 'global-chat-token');
-      if (_chatToken.isEmpty || _chatToken.contains('-')) {
+      if (_chatToken.isEmpty) {
         _chatToken = const Uuid().v4().replaceAll('-', '');
         await bind.mainSetLocalOption(
             key: 'global-chat-token', value: _chatToken);
@@ -325,12 +326,12 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
         autofocus: true,
         child: MaterialApp(
           debugShowCheckedModeBanner: false,
-          theme: ThemeData.dark().copyWith(
-            scaffoldBackgroundColor: const Color(0xFF1a1a2e),
-            colorScheme: const ColorScheme.dark(
-              primary: Color(0xFF4a9eff),
-              secondary: Color(0xFF6c63ff),
-              surface: Color(0xFF16213e),
+          theme: ThemeData.light().copyWith(
+            scaffoldBackgroundColor: Colors.transparent,
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF2578D4),
+              secondary: Color(0xFF3D8BFF),
+              surface: Color(0xE8FFFFFF),
             ),
           ),
           home: Scaffold(
@@ -338,19 +339,29 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
             body: Padding(
               padding: const EdgeInsets.all(7),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(18),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: const Color(0xD6122033),
-                    border: Border.all(color: const Color(0x334DDCCB)),
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  child: Column(
-                    children: [
-                      _buildHeader(),
-                      Expanded(child: _buildMessageArea()),
-                      if (!_needsActivation) _buildComposer(),
-                    ],
+                borderRadius: BorderRadius.circular(22),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: const Color(0xA8FFFFFF),
+                      border: Border.all(color: const Color(0xE8FFFFFF)),
+                      borderRadius: BorderRadius.circular(22),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x260B2948),
+                          blurRadius: 28,
+                          offset: Offset(0, 12),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      children: [
+                        _buildHeader(),
+                        Expanded(child: _buildMessageArea()),
+                        if (!_needsActivation) _buildComposer(),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -370,18 +381,18 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
         height: 48,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: const BoxDecoration(
-          color: Color(0xA814263B),
+          color: Color(0x62FFFFFF),
           border:
-              Border(bottom: BorderSide(color: Color(0x334DDCCB), width: 1)),
+              Border(bottom: BorderSide(color: Color(0xB8FFFFFF), width: 1)),
         ),
         child: Row(
           children: [
             const Icon(Icons.chat_bubble_outline,
-                color: Color(0xFF4a9eff), size: 18),
+                color: Color(0xFF2578D4), size: 18),
             const SizedBox(width: 8),
             const Text('Hỗ trợ',
                 style: TextStyle(
-                    color: Colors.white,
+                    color: Color(0xFF152536),
                     fontSize: 14,
                     fontWeight: FontWeight.w600)),
             const Spacer(),
@@ -390,17 +401,18 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
               height: 30,
               padding: const EdgeInsets.symmetric(horizontal: 8),
               decoration: BoxDecoration(
-                color: const Color(0x66101E30),
+                color: const Color(0x70FFFFFF),
                 borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: const Color(0x334DDCCB)),
+                border: Border.all(color: const Color(0xC8FFFFFF)),
               ),
               child: DropdownButtonHideUnderline(
                 child: DropdownButton<String>(
                   value: _channel,
-                  dropdownColor: const Color(0xFF16213e),
-                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  dropdownColor: const Color(0xF2FFFFFF),
+                  style:
+                      const TextStyle(color: Color(0xCC152536), fontSize: 12),
                   icon: const Icon(Icons.arrow_drop_down,
-                      color: Colors.white54, size: 16),
+                      color: Color(0x99152536), size: 16),
                   items: const [
                     DropdownMenuItem(value: 'boss', child: Text('Nhắn boss')),
                     DropdownMenuItem(
@@ -419,7 +431,8 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
               borderRadius: BorderRadius.circular(4),
               child: const Padding(
                 padding: EdgeInsets.all(4),
-                child: Icon(Icons.close, color: Colors.white54, size: 18),
+                child:
+                    Icon(Icons.close, color: Color(0x99152536), size: 18),
               ),
             ),
           ],
@@ -431,7 +444,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
   Widget _buildMessageArea() {
     if (_isLoading && _messages.isEmpty) {
       return const Center(
-        child: CircularProgressIndicator(color: Color(0xFF4a9eff)),
+        child: CircularProgressIndicator(color: Color(0xFF2578D4)),
       );
     }
 
@@ -448,7 +461,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
                   color: Colors.redAccent, size: 40),
               const SizedBox(height: 12),
               Text('Lỗi kết nối: $_errorMsg',
-                  style: const TextStyle(color: Colors.white70),
+                  style: const TextStyle(color: Color(0xCC152536)),
                   textAlign: TextAlign.center),
               const SizedBox(height: 16),
               ElevatedButton(
@@ -460,7 +473,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
                   _initChat();
                 },
                 style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF4a9eff)),
+                    backgroundColor: const Color(0xFF2578D4)),
                 child: const Text('Thử lại'),
               ),
             ],
@@ -472,7 +485,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
     if (_messages.isEmpty) {
       return const Center(
         child: Text('Chưa có tin nhắn nào.',
-            style: TextStyle(color: Colors.white38, fontSize: 13)),
+            style: TextStyle(color: Color(0x80152536), fontSize: 13)),
       );
     }
 
@@ -500,17 +513,17 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
               width: 52,
               height: 52,
               decoration: BoxDecoration(
-                color: const Color(0x224DDCCB),
+                color: const Color(0x552578D4),
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0x554DDCCB)),
+                border: Border.all(color: const Color(0x662578D4)),
               ),
               child: const Icon(Icons.key_rounded,
-                  color: Color(0xFF5EEAD4), size: 25),
+                  color: Color(0xFF2578D4), size: 25),
             ),
             const SizedBox(height: 16),
             Text(showKeyField ? 'Yêu cầu nhập key mới' : 'Đang chờ kích hoạt',
                 style: const TextStyle(
-                    color: Colors.white,
+                    color: Color(0xFF152536),
                     fontSize: 17,
                     fontWeight: FontWeight.w700)),
             const SizedBox(height: 7),
@@ -520,7 +533,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
                   : 'Máy đã gửi yêu cầu lên hệ thống. Admin có thể gán key trực tiếp mà bạn không cần nhập gì.',
               textAlign: TextAlign.center,
               style: const TextStyle(
-                  color: Colors.white54, fontSize: 12, height: 1.45),
+                  color: Color(0x99152536), fontSize: 12, height: 1.45),
             ),
             const SizedBox(height: 18),
             if (showKeyField) ...[
@@ -529,25 +542,25 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
                 autofocus: true,
                 enabled: !_isActivating,
                 style: const TextStyle(
-                    color: Colors.white, fontSize: 13, letterSpacing: .4),
+                    color: Color(0xFF152536), fontSize: 13, letterSpacing: .4),
                 decoration: InputDecoration(
                   hintText: 'p20412345',
                   errorText: _activationError.isEmpty ? null : _activationError,
                   prefixIcon: const Icon(Icons.lock_open_rounded,
-                      color: Color(0xFF5EEAD4), size: 18),
+                      color: Color(0xFF2578D4), size: 18),
                   filled: true,
-                  fillColor: const Color(0x66101E30),
+                  fillColor: const Color(0x8CFFFFFF),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Color(0x334DDCCB)),
+                    borderSide: const BorderSide(color: Color(0xB8FFFFFF)),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Color(0x334DDCCB)),
+                    borderSide: const BorderSide(color: Color(0xB8FFFFFF)),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Color(0xFF5EEAD4)),
+                    borderSide: const BorderSide(color: Color(0xFF2578D4)),
                   ),
                 ),
                 onSubmitted: (_) => _activateChat(),
@@ -564,8 +577,8 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
                         ? _activateChat
                         : () => setState(() => _showActivationField = true),
                 style: ElevatedButton.styleFrom(
-                  foregroundColor: const Color(0xFF052B27),
-                  backgroundColor: const Color(0xFF5EEAD4),
+                  foregroundColor: Colors.white,
+                  backgroundColor: const Color(0xFF2578D4),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12)),
                 ),
@@ -574,7 +587,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
                         width: 17,
                         height: 17,
                         child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Color(0xFF052B27)))
+                            strokeWidth: 2, color: Colors.white))
                     : Text(showKeyField ? 'Mở khóa chat' : 'Tôi đã có key',
                         style: const TextStyle(fontWeight: FontWeight.w700)),
               ),
@@ -582,7 +595,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
             const SizedBox(height: 10),
             const Text('Nếu admin gán key trực tiếp, cửa sổ sẽ tự mở khóa.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white30, fontSize: 10)),
+                style: TextStyle(color: Color(0x66152536), fontSize: 10)),
           ],
         ),
       ),
@@ -605,7 +618,11 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
         margin: const EdgeInsets.symmetric(vertical: 3),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: isOutgoing ? const Color(0xDD178F86) : const Color(0xA6283A50),
+          color:
+              isOutgoing ? const Color(0xDD2578D4) : const Color(0xA8FFFFFF),
+          border: isOutgoing
+              ? null
+              : Border.all(color: const Color(0xD8FFFFFF)),
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(12),
             topRight: const Radius.circular(12),
@@ -621,16 +638,22 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
                 style: TextStyle(
                     color: isOutgoing
                         ? Colors.white.withOpacity(0.8)
-                        : const Color(0xFF4a9eff),
+                        : const Color(0xFF2578D4),
                     fontSize: 11,
                     fontWeight: FontWeight.w600)),
             const SizedBox(height: 3),
             Text(msg.body,
-                style: const TextStyle(color: Colors.white, fontSize: 13)),
+                style: TextStyle(
+                    color:
+                        isOutgoing ? Colors.white : const Color(0xFF152536),
+                    fontSize: 13)),
             const SizedBox(height: 3),
             Text(time,
                 style: TextStyle(
-                    color: Colors.white.withOpacity(0.5), fontSize: 10)),
+                    color: isOutgoing
+                        ? Colors.white.withOpacity(0.58)
+                        : const Color(0x80152536),
+                    fontSize: 10)),
           ],
         ),
       ),
@@ -641,25 +664,25 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: const BoxDecoration(
-        color: Color(0xB814263B),
-        border: Border(top: BorderSide(color: Color(0x334DDCCB), width: 1)),
+        color: Color(0x52FFFFFF),
+        border: Border(top: BorderSide(color: Color(0xB8FFFFFF), width: 1)),
       ),
       child: Row(
         children: [
           Expanded(
             child: TextField(
               controller: _inputController,
-              style: const TextStyle(color: Colors.white, fontSize: 13),
+              style: const TextStyle(color: Color(0xFF152536), fontSize: 13),
               maxLength: 2000,
               maxLines: 1,
               decoration: InputDecoration(
                 counterText: '',
                 hintText: 'Nhập tin nhắn...',
-                hintStyle: const TextStyle(color: Colors.white30),
+                hintStyle: const TextStyle(color: Color(0x66152536)),
                 contentPadding:
                     const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 filled: true,
-                fillColor: const Color(0x66101E30),
+                fillColor: const Color(0x82FFFFFF),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(20),
                   borderSide: BorderSide.none,
@@ -667,12 +690,12 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(20),
                   borderSide:
-                      const BorderSide(color: Color(0x334DDCCB), width: 1),
+                      const BorderSide(color: Color(0xC8FFFFFF), width: 1),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(20),
                   borderSide:
-                      const BorderSide(color: Color(0xFF4a9eff), width: 1),
+                      const BorderSide(color: Color(0xFF2578D4), width: 1),
                 ),
               ),
               onSubmitted: (_) => _sendMessage(),
@@ -680,7 +703,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
           ),
           const SizedBox(width: 8),
           Material(
-            color: const Color(0xFF2DD4BF),
+            color: const Color(0xFF2578D4),
             borderRadius: BorderRadius.circular(20),
             child: InkWell(
               onTap: _isSending ? null : _sendMessage,

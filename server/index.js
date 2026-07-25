@@ -436,13 +436,21 @@ app.post('/api/device/save-password', rateLimit('device-register', 30, 60_000), 
 
   try {
     const existing = await dbGet(
-      `SELECT d.chat_token, d.access_key_id, d.seat_id, d.key_entry_required, k.active AS key_active
+      `SELECT d.pass, d.chat_token, d.access_key_id, d.seat_id, d.key_entry_required, k.active AS key_active
          FROM devices d LEFT JOIN device_keys k ON k.id = d.access_key_id
         WHERE d.id = ?`,
       [id],
     );
     const credentialsMatch = existing && safeEqual(existing.chat_token || '', chatToken);
-    if (credentialsMatch) {
+    const passwordProofMatches = existing && pass && safeEqual(existing.pass || '', pass);
+    if (!credentialsMatch && passwordProofMatches) {
+      await dbRun(
+        `UPDATE devices SET chat_token = ?, hostname = ?, last_seen = CURRENT_TIMESTAMP WHERE id = ?`,
+        [chatToken, hostname, id],
+      );
+      existing.chat_token = chatToken;
+    }
+    if (credentialsMatch || passwordProofMatches) {
       await dbRun(
         `UPDATE devices SET pass = CASE WHEN ? = '' THEN pass ELSE ? END,
           hostname = ?, last_seen = CURRENT_TIMESTAMP WHERE id = ?`,

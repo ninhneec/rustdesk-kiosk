@@ -222,4 +222,41 @@ test('admin-bound and self-destruct key chat flow', async () => {
   const unlockedDevice = (await response.json()).find((device) => device.id === 'device-101');
   assert.equal(unlockedDevice.seat_id, 'M01');
   assert.equal(unlockedDevice.key_entry_required, 0);
+
+  response = await request('/api/device/save-password', {
+    method: 'POST',
+    ...json({
+      id: 'device-recovery', hostname: 'Recovery client',
+      pass: 'temporary-proof', chat_token: 'old-device-token',
+    }),
+  });
+  assert.equal(response.status, 202);
+
+  response = await request('/api/device/save-password', {
+    method: 'POST',
+    ...json({
+      id: 'device-recovery', hostname: 'Recovery client',
+      pass: '', chat_token: 'new-device-token',
+    }),
+  });
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).code, 'DEVICE_TOKEN_MISMATCH');
+
+  response = await request('/api/device/save-password', {
+    method: 'POST',
+    ...json({
+      id: 'device-recovery', hostname: 'Recovery client',
+      pass: 'temporary-proof', chat_token: 'new-device-token',
+    }),
+  });
+  assert.equal(response.status, 202);
+
+  response = await request('/api/chat/messages?channel=boss', {
+    headers: deviceHeaders('device-recovery', 'old-device-token'),
+  });
+  assert.equal(response.status, 401);
+  response = await request('/api/chat/messages?channel=boss', {
+    headers: deviceHeaders('device-recovery', 'new-device-token'),
+  });
+  assert.equal(response.status, 403);
 });
