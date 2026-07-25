@@ -70,6 +70,23 @@ test('admin-bound and self-destruct key chat flow', async () => {
   assert.equal(pendingRegistration.activated, false);
   assert.equal(pendingRegistration.key_entry_required, false);
 
+  response = await request('/api/device/sos', {
+    method: 'POST',
+    headers: deviceHeaders('device-101', 'device-token-101'),
+    body: JSON.stringify({ source: 'ctrl-shift-f11' }),
+  });
+  assert.equal(response.status, 201);
+  assert.equal((await response.json()).accepted, true);
+
+  response = await adminRequest('/api/admin/chat/alerts');
+  const sosAlert = (await response.json()).find((alert) => alert.matched_keyword === 'hotkey-sos');
+  assert.ok(sosAlert);
+  assert.equal(sosAlert.priority, 'urgent');
+  response = await adminRequest(`/api/admin/chat/alerts/${sosAlert.id}/acknowledge`, {
+    method: 'POST',
+  });
+  assert.equal(response.status, 200);
+
   response = await request('/api/chat/messages?channel=boss', {
     headers: deviceHeaders('device-101', 'device-token-101'),
   });

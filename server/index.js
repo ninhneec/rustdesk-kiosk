@@ -191,6 +191,7 @@ function auditAction(method, routePath) {
     [/POST \/api\/admin\/session$/, 'admin.login'],
     [/DELETE \/api\/admin\/session$/, 'admin.logout'],
     [/POST \/api\/device\/save-password$/, 'device.register_or_heartbeat'],
+    [/POST \/api\/device\/sos$/, 'device.sos'],
     [/POST \/api\/admin\/devices\/[^/]+\/seat$/, 'device.assign_seat'],
     [/DELETE \/api\/admin\/devices\/[^/]+$/, 'device.delete'],
     [/POST \/api\/admin\/devices\/require-key$/, 'device.require_key'],
@@ -401,10 +402,13 @@ setInterval(() => {
   }
 }, 60_000).unref();
 
-async function requireDevice(req, res, next) {
+async function authenticateDevice(req, res) {
   const id = deviceId(req.get('x-device-id'));
   const suppliedToken = token(req.get('x-device-token'));
-  if (!id || !suppliedToken) return fail(res, 401, 'Missing device credentials');
+  if (!id || !suppliedToken) {
+    fail(res, 401, 'Missing device credentials');
+    return null;
+  }
   try {
     const row = await dbGet(
       `SELECT d.chat_token, d.access_key_id, d.seat_id, d.key_entry_required, k.active AS key_active
@@ -412,7 +416,31 @@ async function requireDevice(req, res, next) {
         WHERE d.id = ?`,
       [id],
     );
-    if (!row || !safeEqual(row.chat_token || '', suppliedToken)) return fail(res, 401, 'Unauthorized');
+    if (!row || !safeEqual(row.chat_token || '', suppliedToken)) {
+      fail(res, 401, 'Unauthorized');
+      return null;
+    }
+    return { id, row };
+  } catch (error) {
+    console.error('Device authentication failed:', error);
+    fail(res, 500, 'Database error');
+    return null;
+  }
+}
+
+async function requireRegisteredDevice(req, res, next) {
+  const authenticated = await authenticateDevice(req, res);
+  if (!authenticated) return;
+  req.deviceId = authenticated.id;
+  req.device = authenticated.row;
+  next();
+}
+
+async function requireDevice(req, res, next) {
+  const authenticated = await authenticateDevice(req, res);
+  if (!authenticated) return;
+  const { id, row } = authenticated;
+  try {
     if (!row.access_key_id || row.key_active !== 1) {
       const mustEnterKey = Number(row.key_entry_required) === 1;
       return fail(
@@ -425,8 +453,7 @@ async function requireDevice(req, res, next) {
     req.deviceId = id;
     req.device = row;
     next();
-  } catch (error) {
-    console.error('Device authentication failed:', error);
+  } catch (_error) {
     fail(res, 500, 'Database error');
   }
 }
@@ -448,10 +475,10 @@ function emitAdminEvent(event, data) {
   for (const stream of adminStreams) stream.write(payload);
 }
 
-async function createChatAlert(messageId, senderId, body, channel) {
+async function createChatAlert(messageId, senderId, body, channel, options = {}) {
   if (senderId === 'boss') return null;
-  const keyword = matchedAlertKeyword(body);
-  const priority = keyword ? 'urgent' : 'normal';
+  const keyword = options.matchedKeyword || matchedAlertKeyword(body);
+  const priority = options.priority === 'urgent' || keyword ? 'urgent' : 'normal';
   const device = await dbGet(
     `SELECT d.hostname, d.seat_id, d.access_key_id, k.label AS key_label, k.key_hint
        FROM devices d LEFT JOIN device_keys k ON k.id = d.access_key_id
@@ -1113,6 +1140,29 @@ app.post('/api/admin/device-keys/:id/revoke', requireAdmin, requireSameOrigin, a
     emitAdminEvent('device-key-revoked', { key_id: keyId });
     res.json({ success: true });
   } catch (_error) {
+    fail(res, 500, 'Database error');
+  }
+});
+
+app.post('/api/device/sos', requireRegisteredDevice, rateLimit('device-sos', 6, 60_000), async (req, res) => {
+  const body = 'SOS · Yêu cầu cứu hộ khẩn cấp từ phím tắt';
+  try {
+    const result = await dbRun(
+      'INSERT INTO chat_messages (channel, sender_id, recipient_id, body) VALUES (?, ?, ?, ?)',
+      ['boss', req.deviceId, req.deviceId, body],
+    );
+    const alert = await createChatAlert(result.lastID, req.deviceId, body, 'boss', {
+      priority: 'urgent',
+      matchedKeyword: 'hotkey-sos',
+    });
+    emitAdminEvent('device-sos', {
+      device_id: req.deviceId,
+      seat_id: req.device.seat_id || null,
+      alert_id: alert?.id || null,
+    });
+    res.status(201).json({ accepted: true, alert_id: alert?.id || null });
+  } catch (error) {
+    console.error('Could not create device SOS:', error);
     fail(res, 500, 'Database error');
   }
 });

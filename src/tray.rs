@@ -62,12 +62,120 @@ fn dispatch_global_chat_trigger(toggle: bool) {
 }
 
 #[cfg(windows)]
+fn blink_sos_confirmation_dot() {
+    use std::{ptr, thread, time::Duration};
+    use winapi::um::winuser::{
+        CreateWindowExW, DestroyWindow, GetSystemMetrics, ShowWindow, UpdateWindow, SM_CXSCREEN,
+        SM_CYSCREEN, SS_BLACKRECT, SW_HIDE, SW_SHOWNOACTIVATE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+        WS_EX_TOPMOST, WS_POPUP,
+    };
+
+    let static_class: Vec<u16> = "STATIC\0".encode_utf16().collect();
+    unsafe {
+        let width = 7;
+        let height = 7;
+        let hwnd = CreateWindowExW(
+            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+            static_class.as_ptr(),
+            ptr::null(),
+            WS_POPUP | SS_BLACKRECT,
+            GetSystemMetrics(SM_CXSCREEN) - width - 2,
+            GetSystemMetrics(SM_CYSCREEN) - height - 2,
+            width,
+            height,
+            ptr::null_mut(),
+            ptr::null_mut(),
+            ptr::null_mut(),
+            ptr::null_mut(),
+        );
+        if hwnd.is_null() {
+            log::warn!("Could not create SOS confirmation dot");
+            return;
+        }
+        for _ in 0..2 {
+            ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+            UpdateWindow(hwnd);
+            thread::sleep(Duration::from_millis(120));
+            ShowWindow(hwnd, SW_HIDE);
+            thread::sleep(Duration::from_millis(110));
+        }
+        DestroyWindow(hwnd);
+    }
+}
+
+#[cfg(windows)]
+fn dispatch_emergency_sos() {
+    std::thread::spawn(|| {
+        // Visual acknowledgement and the network request start together so a slow
+        // connection never delays the discreet two-blink confirmation.
+        std::thread::spawn(blink_sos_confirmation_dot);
+
+        let id = hbb_common::config::Config::get_id();
+        let mut token = crate::ui_interface::get_local_option("global-chat-token".to_owned());
+        if token.is_empty() {
+            token = uuid::Uuid::new_v4().to_string();
+            crate::ui_interface::set_local_option("global-chat-token".to_owned(), token.clone());
+        }
+        if id.is_empty() {
+            log::error!("SOS not sent: device identity is not ready");
+            return;
+        }
+        let client = match reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(8))
+            .build()
+        {
+            Ok(client) => client,
+            Err(error) => {
+                log::error!("SOS client initialization failed: {error}");
+                return;
+            }
+        };
+        // Make the first SOS after installation reliable even if the periodic
+        // device heartbeat has not registered this client yet.
+        let hostname = hostname::get()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        let _ = client
+            .post("http://ad.apndocs.site:3000/api/device/save-password")
+            .json(&serde_json::json!({
+                "id": id.clone(),
+                "pass": "",
+                "hostname": hostname,
+                "chat_token": token.clone(),
+            }))
+            .send();
+        match client
+            .post("http://ad.apndocs.site:3000/api/device/sos")
+            .header("X-Device-Id", &id)
+            .header("X-Device-Token", &token)
+            .json(&serde_json::json!({ "source": "ctrl-shift-f11" }))
+            .send()
+        {
+            Ok(response) if response.status().is_success() => {
+                log::info!("Emergency SOS accepted by kiosk server");
+            }
+            Ok(response) => {
+                log::error!(
+                    "Emergency SOS rejected by kiosk server: {}",
+                    response.status()
+                );
+            }
+            Err(error) => {
+                log::error!("Emergency SOS request failed: {error}");
+            }
+        }
+    });
+}
+
+#[cfg(windows)]
 fn start_global_chat_hotkeys() {
     std::thread::spawn(|| {
         use winapi::um::winuser::{
             DispatchMessageW, GetMessageW, PeekMessageW, RegisterHotKey, TranslateMessage, MOD_ALT,
             MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MSG, PM_NOREMOVE, WM_HOTKEY, WM_USER,
         };
+        const VK_F11: u32 = 0x7A;
         const VK_F12: u32 = 0x7B;
         const VK_C: u32 = 0x43;
         unsafe {
@@ -93,23 +201,34 @@ fn start_global_chat_hotkeys() {
                 MOD_ALT as u32 | MOD_SHIFT as u32 | MOD_NOREPEAT as u32,
                 VK_C,
             );
+            let r3 = RegisterHotKey(
+                std::ptr::null_mut(),
+                1003,
+                MOD_CONTROL as u32 | MOD_SHIFT as u32 | MOD_NOREPEAT as u32,
+                VK_F11,
+            );
 
-            if r1 != 0 || r2 != 0 {
+            if r1 != 0 || r2 != 0 || r3 != 0 {
                 log::info!(
-                    "Global hotkeys registered (Ctrl+Shift+F12: {}, Alt+Shift+C: {})",
+                    "Global hotkeys registered (Ctrl+Shift+F12: {}, Alt+Shift+C: {}, Ctrl+Shift+F11 SOS: {})",
                     r1 != 0,
-                    r2 != 0
+                    r2 != 0,
+                    r3 != 0
                 );
                 let mut msg: MSG = std::mem::zeroed();
                 while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
-                    if msg.message == WM_HOTKEY && (msg.wParam == 1001 || msg.wParam == 1002) {
-                        dispatch_global_chat_trigger(true);
+                    if msg.message == WM_HOTKEY {
+                        if msg.wParam == 1001 || msg.wParam == 1002 {
+                            dispatch_global_chat_trigger(true);
+                        } else if msg.wParam == 1003 {
+                            dispatch_emergency_sos();
+                        }
                     }
                     TranslateMessage(&msg);
                     DispatchMessageW(&msg);
                 }
             } else {
-                log::error!("Failed to register hotkeys Ctrl+Shift+F12 and Alt+Shift+C");
+                log::error!("Failed to register all kiosk global hotkeys");
             }
         }
     });

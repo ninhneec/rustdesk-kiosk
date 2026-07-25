@@ -113,6 +113,7 @@ async function fetchDevices() {
 async function fetchAlerts() {
   state.alerts = await api('/api/admin/chat/alerts');
   renderAlerts();
+  renderDevices();
   renderMap();
   renderMetrics();
 }
@@ -279,9 +280,13 @@ function renderDevices() {
     const active = isActive(device);
     const online = isOnline(device);
     const forcedKey = Number(device.key_entry_required) === 1;
-    const row = element('tr');
+    const activeSos = state.alerts.some(
+      (alert) => alert.device_id === device.id && alert.matched_keyword === 'hotkey-sos',
+    );
+    const row = element('tr', activeSos ? 'device-sos-active' : '');
     const connectionCell = element('td');
     connectionCell.append(element('span', `status ${online ? 'online' : 'offline'}`, online ? 'Online' : 'Offline'));
+    if (activeSos) connectionCell.append(element('span', 'device-sos-badge', 'SOS'));
 
     const accessCell = element('td');
     accessCell.append(element(
@@ -458,9 +463,10 @@ function renderMap() {
       const device = bySeat.get(seat);
       const deskAlerts = device ? state.alerts.filter((alert) => alert.device_id === device.id) : [];
       const urgentAlerts = deskAlerts.filter((alert) => alert.priority === 'urgent');
+      const sosAlerts = deskAlerts.filter((alert) => alert.matched_keyword === 'hotkey-sos');
       const status = !device ? '' : isOnline(device) ? 'online assigned' : 'offline assigned';
       const keyPending = Boolean(device && !isActive(device));
-      const desk = element('button', `desk ${index % 2 === 0 ? 'upper' : 'lower'} ${status}`.trim());
+      const desk = element('button', `desk ${index % 2 === 0 ? 'upper' : 'lower'} ${status} ${sosAlerts.length ? 'has-sos-alert' : ''}`.trim());
       desk.type = 'button';
       desk.title = `${roomRow.label} · Số ảnh ${roomRow.photo[index]} · Ghế ${seat}`;
 
@@ -486,8 +492,10 @@ function renderMap() {
           element('span', 'desk-alert-icon', '●'),
           element('strong', 'desk-alert-count', deskAlerts.length > 99 ? '99+' : String(deskAlerts.length)),
         );
-        badge.title = urgentAlerts.length
-          ? `${urgentAlerts.length} tin khẩn · ${deskAlerts.length} tin chưa xử lý`
+        badge.title = sosAlerts.length
+          ? `${sosAlerts.length} yêu cầu SOS · ${deskAlerts.length} tin chưa xử lý`
+          : urgentAlerts.length
+            ? `${urgentAlerts.length} tin khẩn · ${deskAlerts.length} tin chưa xử lý`
           : `${deskAlerts.length} tin chưa xử lý`;
         badge.setAttribute('aria-label', badge.title);
         desk.append(badge);
@@ -992,6 +1000,7 @@ function connectEvents() {
     }
     fetchAlerts().catch(console.error);
   });
+  source.addEventListener('device-sos', () => fetchAlerts().catch(console.error));
   ['device-pending', 'device-activated', 'device-updated', 'device-key-updated', 'device-key-revoked'].forEach((eventName) => {
     source.addEventListener(eventName, () => Promise.all([fetchDevices(), fetchKeys()]).catch(console.error));
   });

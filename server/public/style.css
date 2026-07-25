@@ -546,6 +546,30 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 th { position: sticky; top: 0; z-index: 1; background: #0d1b28; }
 td, th { font-variant-numeric: tabular-nums; }
 tbody tr:nth-child(even) { background: rgba(255,255,255,.012); }
+.device-sos-active,
+.device-sos-active:nth-child(even) {
+  background: linear-gradient(90deg, rgba(239, 68, 68, .2), rgba(239, 68, 68, .055));
+  box-shadow: inset 4px 0 #ef4444;
+  animation: device-sos-row-pulse 1.15s ease-in-out infinite;
+}
+.device-sos-active:hover { background: rgba(239, 68, 68, .24); }
+.device-sos-badge {
+  display: block;
+  width: max-content;
+  margin-top: 6px;
+  padding: 3px 7px;
+  border: 1px solid rgba(255, 255, 255, .3);
+  border-radius: 999px;
+  color: #fff;
+  background: #e52f45;
+  box-shadow: 0 0 16px rgba(229, 47, 69, .55);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .09em;
+}
+@keyframes device-sos-row-pulse {
+  50% { background-color: rgba(239, 68, 68, .13); }
+}
 .alert-center { margin-bottom: .85rem; border-color: rgba(251, 113, 133, .22); }
 .modal-card { border-radius: 14px; }
 .chat-dock {
@@ -769,6 +793,17 @@ tbody tr:nth-child(even) { background: rgba(255,255,255,.012); }
   background: #ef5368;
   box-shadow: 0 0 0 0 rgba(239, 83, 104, .55), 0 7px 20px rgba(239, 83, 104, .42);
   animation: urgent-desk-ping 1.25s ease-out infinite;
+}
+.desk.has-sos-alert {
+  border-color: #ef344f;
+  box-shadow: 0 0 0 3px rgba(239, 52, 79, .22), 0 0 26px rgba(239, 52, 79, .3);
+  animation: sos-desk-pulse 1.05s ease-in-out infinite;
+}
+@keyframes sos-desk-pulse {
+  50% {
+    border-color: #ff7b8d;
+    box-shadow: 0 0 0 5px rgba(239, 52, 79, .09), 0 0 34px rgba(239, 52, 79, .48);
+  }
 }
 @keyframes urgent-desk-ping {
   0% { box-shadow: 0 0 0 0 rgba(239, 83, 104, .55), 0 7px 20px rgba(239, 83, 104, .42); }
