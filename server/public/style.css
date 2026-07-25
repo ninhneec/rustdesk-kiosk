@@ -737,6 +737,27 @@ tbody tr:nth-child(even) { background: rgba(255,255,255,.012); }
   background: rgba(12, 27, 40, .9);
   box-shadow: 0 12px 34px rgba(0, 5, 10, .3);
 }
+.audit-table { min-width: 980px; }
+.audit-table-wrap { max-height: min(68vh, 720px); }
+.audit-table thead { position: sticky; top: 0; z-index: 2; }
+.audit-action { color: #e7eef2; font-weight: 650; }
+.audit-detail { max-width: 330px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.danger-zone {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(420px, 1.15fr);
+  gap: 2rem;
+  align-items: center;
+  margin: 0 1.25rem 1.25rem;
+  padding: 1.1rem;
+  border: 1px solid rgba(251, 113, 133, .24);
+  border-radius: 12px;
+  background: rgba(251, 113, 133, .045);
+}
+.danger-zone h3 { margin: .25rem 0 .35rem; font-size: .95rem; }
+.danger-zone p:last-child { margin: 0; color: var(--muted); font-size: .7rem; line-height: 1.5; }
+.danger-zone-actions { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; gap: .55rem; }
+.button.solid-danger { color: #fff; background: #c94f62; }
+.button.solid-danger:hover { background: #df6174; }
 
 @media (max-width: 1080px) {
   .dashboard-layout { grid-template-columns: 78px minmax(0, 1fr); }
@@ -763,7 +784,7 @@ tbody tr:nth-child(even) { background: rgba(255,255,255,.012); }
     backdrop-filter: blur(14px);
   }
   .sidebar-context, .sidebar-help { display: none; }
-  .sidebar .section-tabs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .sidebar .section-tabs { grid-template-columns: repeat(5, minmax(0, 1fr)); }
   .sidebar .tab-button { padding: .42rem; box-shadow: none; }
   .sidebar .tab-button > span { width: 28px; height: 28px; }
   .workspace { padding: 1.2rem .7rem 3rem; }
@@ -778,4 +799,6 @@ tbody tr:nth-child(even) { background: rgba(255,255,255,.012); }
   .chat-dock { right: .5rem; max-width: calc(100vw - 1rem); gap: .4rem; }
   .chat-window { width: calc(100vw - 1rem); height: min(70dvh, 590px); }
   .chat-window.minimized { width: 190px; }
+  .danger-zone { grid-template-columns: 1fr; gap: 1rem; margin-inline: .75rem; }
+  .danger-zone-actions { grid-template-columns: 1fr; }
 }

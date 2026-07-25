@@ -152,6 +152,21 @@ async function initializeDatabase() {
   await addColumnIfMissing('chat_alerts', 'key_id', 'INTEGER');
   await dbRun('CREATE INDEX IF NOT EXISTS idx_chat_alerts_active ON chat_alerts(acknowledged, id DESC)');
 
+  await dbRun(`CREATE TABLE IF NOT EXISTS audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor_type TEXT NOT NULL,
+    actor_id TEXT,
+    action TEXT NOT NULL,
+    entity_type TEXT,
+    entity_id TEXT,
+    success INTEGER NOT NULL DEFAULT 1,
+    details TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await dbRun('CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(id DESC)');
+  await dbRun('CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action, id DESC)');
+  await dbRun("DELETE FROM audit_logs WHERE created_at < datetime('now', '-180 days')");
+
   await dbRun(`CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT
@@ -167,6 +182,73 @@ async function initializeDatabase() {
 }
 
 databaseReady = initializeDatabase();
+
+function auditAction(method, routePath) {
+  const route = `${method} ${routePath}`;
+  const rules = [
+    [/POST \/api\/admin\/session$/, 'admin.login'],
+    [/DELETE \/api\/admin\/session$/, 'admin.logout'],
+    [/POST \/api\/device\/save-password$/, 'device.register_or_heartbeat'],
+    [/POST \/api\/admin\/devices\/[^/]+\/seat$/, 'device.assign_seat'],
+    [/DELETE \/api\/admin\/devices\/[^/]+$/, 'device.delete'],
+    [/POST \/api\/admin\/devices\/require-key$/, 'device.require_key'],
+    [/POST \/api\/admin\/devices\/cancel-key-requirement$/, 'device.cancel_key_requirement'],
+    [/POST \/api\/admin\/device-keys$/, 'key.create'],
+    [/PUT \/api\/admin\/device-keys\/[^/]+$/, 'key.update'],
+    [/POST \/api\/admin\/device-keys\/[^/]+\/revoke$/, 'key.revoke'],
+    [/POST \/api\/chat\/messages$/, 'chat.device_message'],
+    [/POST \/api\/admin\/chat\/messages$/, 'chat.admin_message'],
+    [/DELETE \/api\/admin\/chat\/messages$/, 'chat.emergency_delete'],
+    [/POST \/api\/admin\/chat\/alerts\/[^/]+\/acknowledge$/, 'alert.acknowledge'],
+    [/POST \/api\/admin\/settings\/keywords$/, 'settings.update_keywords'],
+  ];
+  return rules.find(([pattern]) => pattern.test(route))?.[1] || 'api.mutation';
+}
+
+function auditRequest(req, status) {
+  const routePath = req.route?.path
+    ? `${req.baseUrl || ''}${req.route.path}`.replace(/:([A-Za-z_]+)/g, (_match, name) => req.params?.[name] || `:${name}`)
+    : req.path;
+  const body = req.body || {};
+  const deviceIds = Array.isArray(body.device_ids) ? body.device_ids.slice(0, 50) : undefined;
+  const entityId = req.params?.id || body.device_id || body.id || (deviceIds?.length === 1 ? deviceIds[0] : null);
+  const actorType = req.deviceId ? 'device' : req.path.startsWith('/api/admin') ? 'admin' : 'device';
+  const actorId = req.deviceId || (actorType === 'device' ? body.id : 'admin');
+  const details = {
+    method: req.method,
+    path: routePath,
+    status,
+    channel: body.channel,
+    mode: body.mode,
+    seat_id: body.seat_id,
+    scope: body.scope,
+    device_ids: deviceIds,
+    message_length: typeof body.body === 'string' ? body.body.length : undefined,
+  };
+  Object.keys(details).forEach((key) => details[key] === undefined && delete details[key]);
+  databaseReady
+    .then(() => dbRun(
+      `INSERT INTO audit_logs (actor_type, actor_id, action, entity_type, entity_id, success, details)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        actorType,
+        actorId || null,
+        auditAction(req.method, routePath),
+        entityId ? (routePath.includes('device-key') ? 'key' : routePath.includes('alert') ? 'alert' : 'device') : null,
+        entityId ? String(entityId) : null,
+        status < 400 ? 1 : 0,
+        JSON.stringify(details),
+      ],
+    ))
+    .then(() => emitAdminEvent('audit-created', { action: auditAction(req.method, routePath) }))
+    .catch((error) => console.error('Could not write audit log:', error));
+}
+
+app.use((req, res, next) => {
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) || !req.path.startsWith('/api/')) return next();
+  res.on('finish', () => auditRequest(req, res.statusCode));
+  next();
+});
 
 function parseKeywords(value) {
   return [...new Set(
@@ -571,6 +653,66 @@ app.get('/api/admin/devices', requireAdmin, async (_req, res) => {
   }
 });
 
+app.delete('/api/admin/devices/:id', requireAdmin, requireSameOrigin, async (req, res) => {
+  const id = deviceId(req.params.id);
+  if (!id) return fail(res, 400, 'Thiết bị không hợp lệ');
+  try {
+    const existing = await dbGet('SELECT id, hostname, seat_id FROM devices WHERE id = ?', [id]);
+    if (!existing) return fail(res, 404, 'Không tìm thấy thiết bị');
+    await dbRun('BEGIN IMMEDIATE');
+    try {
+      await dbRun('UPDATE device_keys SET active = 0, device_id = NULL WHERE device_id = ?', [id]);
+      await dbRun('DELETE FROM devices WHERE id = ?', [id]);
+      await dbRun('COMMIT');
+    } catch (error) {
+      await dbRun('ROLLBACK');
+      throw error;
+    }
+    emitAdminEvent('device-deleted', { device_id: id, hostname: existing.hostname, seat_id: existing.seat_id });
+    res.json({ deleted: true, device_id: id });
+  } catch (error) {
+    console.error('Could not delete device:', error);
+    fail(res, 500, 'Không thể xóa thiết bị');
+  }
+});
+
+app.get('/api/admin/audit-logs', requireAdmin, async (req, res) => {
+  const limit = Math.min(500, Math.max(20, Number(req.query.limit) || 200));
+  const action = text(req.query.action, 80);
+  const query = text(req.query.query, 128);
+  try {
+    const where = [];
+    const params = [];
+    if (action && action !== 'all') {
+      where.push('action = ?');
+      params.push(action);
+    }
+    if (query) {
+      where.push('(actor_id LIKE ? OR entity_id LIKE ? OR action LIKE ? OR details LIKE ?)');
+      const pattern = `%${query.replace(/[%_]/g, '\\$&')}%`;
+      params.push(pattern, pattern, pattern, pattern);
+    }
+    params.push(limit);
+    const rows = await dbAll(
+      `SELECT id, actor_type, actor_id, action, entity_type, entity_id, success, details, created_at
+         FROM audit_logs
+        ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+        ORDER BY id DESC LIMIT ?`,
+      params,
+    );
+    res.json(rows.map((row) => ({
+      ...row,
+      success: Boolean(row.success),
+      details: (() => {
+        try { return JSON.parse(row.details || '{}'); } catch (_error) { return {}; }
+      })(),
+    })));
+  } catch (error) {
+    console.error('Could not load audit logs:', error);
+    fail(res, 500, 'Không thể tải nhật ký');
+  }
+});
+
 app.post('/api/admin/devices/:id/seat', requireAdmin, requireSameOrigin, async (req, res) => {
   const id = deviceId(req.params.id);
   const seat = seatId(req.body.seat_id);
@@ -902,6 +1044,48 @@ app.get('/api/admin/chat/messages', requireAdmin, async (req, res) => {
     res.json(await dbAll(query, params));
   } catch (_error) {
     fail(res, 500, 'Database error');
+  }
+});
+
+app.delete('/api/admin/chat/messages', requireAdmin, requireSameOrigin, rateLimit('chat-emergency-delete', 5, 60_000), async (req, res) => {
+  const scope = req.body.scope === 'device' ? 'device' : req.body.scope === 'all' ? 'all' : null;
+  const targetDeviceId = scope === 'device' ? deviceId(req.body.device_id) : null;
+  if (req.body.confirmation !== 'DELETE_CHAT') return fail(res, 400, 'Thiếu xác nhận xóa chat');
+  if (!scope || (scope === 'device' && !targetDeviceId)) return fail(res, 400, 'Phạm vi xóa không hợp lệ');
+  try {
+    await dbRun('BEGIN IMMEDIATE');
+    let deletedMessages;
+    try {
+      if (scope === 'all') {
+        await dbRun('DELETE FROM chat_alerts');
+        deletedMessages = await dbRun('DELETE FROM chat_messages');
+      } else {
+        await dbRun(
+          `DELETE FROM chat_alerts
+            WHERE message_id IN (
+              SELECT id FROM chat_messages WHERE sender_id = ? OR recipient_id = ?
+            )`,
+          [targetDeviceId, targetDeviceId],
+        );
+        deletedMessages = await dbRun(
+          'DELETE FROM chat_messages WHERE sender_id = ? OR recipient_id = ?',
+          [targetDeviceId, targetDeviceId],
+        );
+      }
+      await dbRun('COMMIT');
+    } catch (error) {
+      await dbRun('ROLLBACK');
+      throw error;
+    }
+    emitAdminEvent('chat-deleted', {
+      scope,
+      device_id: targetDeviceId,
+      deleted_messages: deletedMessages.changes,
+    });
+    res.json({ deleted: true, scope, device_id: targetDeviceId, deleted_messages: deletedMessages.changes });
+  } catch (error) {
+    console.error('Could not delete chat history:', error);
+    fail(res, 500, 'Không thể xóa lịch sử chat');
   }
 });
 

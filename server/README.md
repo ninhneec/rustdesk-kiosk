@@ -53,7 +53,7 @@ Lần triển khai đầu, đặt mật khẩu bằng biến môi trường (kh�
 sudo ADMIN_PASSWORD='mat-khau-rieng-cua-ban' bash server/deploy_chat_only.sh
 ```
 
-Backup Google Drive chạy mỗi ngày lúc 02:17. Liên kết OAuth một lần bằng `sudo rclone config`, tạo remote tên `gdrive`, sau đó thử:
+Backup Google Drive chạy mỗi ngày lúc 00:00 theo múi giờ của VPS. Liên kết OAuth một lần bằng `sudo rclone config`, tạo remote tên `gdrive`, sau đó thử:
 
 ```bash
 sudo /usr/local/sbin/rustdesk-kiosk-backup

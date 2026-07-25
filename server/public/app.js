@@ -1,7 +1,7 @@
 'use strict';
 
 const $ = (selector) => document.querySelector(selector);
-const state = { devices: [], alerts: [], keys: [], eventSource: null, refreshTimer: null };
+const state = { devices: [], alerts: [], keys: [], logs: [], eventSource: null, refreshTimer: null };
 const chatWindows = new Map();
 const loginView = $('#login-view');
 const appView = $('#app');
@@ -103,6 +103,7 @@ async function fetchDevices() {
   renderDevices();
   renderMap();
   renderKeyDeviceOptions();
+  renderEmergencyDeviceOptions();
   renderMetrics();
 }
 
@@ -120,6 +121,16 @@ async function fetchKeys() {
 async function fetchKeywords() {
   const result = await api('/api/admin/settings/keywords');
   $('#keywords-input').value = result.keywords || '';
+}
+
+async function fetchLogs() {
+  const params = new URLSearchParams({ limit: '300' });
+  const action = $('#log-action-filter').value;
+  const query = $('#log-search').value.trim();
+  if (action !== 'all') params.set('action', action);
+  if (query) params.set('query', query);
+  state.logs = await api(`/api/admin/audit-logs?${params}`);
+  renderLogs();
 }
 
 async function refreshAll({ quiet = false } = {}) {
@@ -228,8 +239,65 @@ function renderDevices() {
     const connect = element('a', 'button compact ghost', 'Kết nối');
     connect.href = `rustdesk://connect?id=${encodeURIComponent(device.id)}`;
     actions.append(connect);
+    actions.append(actionButton('Xóa', 'danger', () => deleteDevice(device)));
     actionsCell.append(actions);
     row.append(connectionCell, accessCell, machineCell, idCell, passwordCell, seatCell, keyCell, lastCell, actionsCell);
+    body.append(row);
+  });
+}
+
+const auditLabels = {
+  'admin.login': 'Đăng nhập admin',
+  'admin.logout': 'Đăng xuất admin',
+  'device.register_or_heartbeat': 'Thiết bị cập nhật',
+  'device.assign_seat': 'Gán chỗ ngồi',
+  'device.delete': 'Xóa thiết bị',
+  'device.require_key': 'Ép nhập key',
+  'device.cancel_key_requirement': 'Gỡ ép nhập key',
+  'key.create': 'Tạo key',
+  'key.update': 'Sửa key',
+  'key.revoke': 'Thu hồi key',
+  'chat.device_message': 'Tin nhắn từ máy',
+  'chat.admin_message': 'Tin nhắn từ admin',
+  'chat.emergency_delete': 'Xóa chat khẩn cấp',
+  'alert.acknowledge': 'Xử lý cảnh báo',
+  'settings.update_keywords': 'Sửa từ khóa cảnh báo',
+  'backup.success': 'Backup Google Drive thành công',
+  'backup.failed': 'Backup Google Drive thất bại',
+  'api.mutation': 'Thay đổi hệ thống',
+};
+
+function renderLogs() {
+  const body = $('#audit-log-list');
+  body.replaceChildren();
+  if (!state.logs.length) {
+    const row = element('tr');
+    const cell = element('td', 'empty-state', 'Chưa có hoạt động phù hợp.');
+    cell.colSpan = 6;
+    row.append(cell);
+    body.append(row);
+    return;
+  }
+  state.logs.forEach((log) => {
+    const row = element('tr');
+    const date = serverDate(log.created_at);
+    row.append(element('td', 'muted mono', date ? date.toLocaleString('vi-VN') : '—'));
+    const resultCell = element('td');
+    resultCell.append(element('span', `status ${log.success ? 'online' : 'pending'}`, log.success ? 'Thành công' : 'Thất bại'));
+    row.append(resultCell);
+    row.append(element('td', 'audit-action', auditLabels[log.action] || log.action));
+    row.append(element('td', 'mono', log.actor_id || log.actor_type));
+    row.append(element('td', 'mono', log.entity_id || '—'));
+    const details = log.details || {};
+    const detailParts = [
+      details.seat_id && `ghế ${details.seat_id}`,
+      details.mode && `mode ${details.mode}`,
+      details.channel && `kênh ${details.channel}`,
+      details.device_ids?.length && `${details.device_ids.length} máy`,
+      details.message_length !== undefined && `${details.message_length} ký tự`,
+      details.status && `HTTP ${details.status}`,
+    ].filter(Boolean);
+    row.append(element('td', 'muted audit-detail', detailParts.join(' · ') || details.path || '—'));
     body.append(row);
   });
 }
@@ -480,6 +548,48 @@ function renderKeyDeviceOptions() {
   });
 }
 
+function renderEmergencyDeviceOptions() {
+  const select = $('#emergency-chat-device');
+  const selected = select.value;
+  select.replaceChildren(new Option('Chọn một máy…', ''));
+  [...state.devices]
+    .sort((left, right) => (left.seat_id || 'ZZZ').localeCompare(right.seat_id || 'ZZZ'))
+    .forEach((device) => {
+      select.add(new Option(
+        `${device.seat_id || 'Chưa gán'} · ${device.hostname || device.id} · ${device.id}`,
+        device.id,
+        false,
+        device.id === selected,
+      ));
+    });
+}
+
+async function emergencyDeleteChat(scope, deviceId = null) {
+  const selected = state.devices.find((device) => device.id === deviceId);
+  const target = scope === 'all' ? 'TOÀN BỘ lịch sử chat' : `chat của ${selected?.hostname || deviceId}`;
+  if (!window.confirm(`Xóa ${target}?\n\nHành động này không thể hoàn tác. Nhật ký xóa vẫn được giữ lại.`)) return;
+  try {
+    const result = await api('/api/admin/chat/messages', {
+      method: 'DELETE',
+      body: JSON.stringify({ scope, device_id: deviceId, confirmation: 'DELETE_CHAT' }),
+    });
+    if (scope === 'all') {
+      chatWindows.forEach((windowElement) => windowElement.remove());
+      chatWindows.clear();
+    } else {
+      const chatWindow = chatWindows.get(deviceId);
+      if (chatWindow) {
+        chatWindow.remove();
+        chatWindows.delete(deviceId);
+      }
+    }
+    notify(`Đã xóa ${result.deleted_messages} tin nhắn`);
+    await Promise.all([fetchAlerts(), fetchLogs()]);
+  } catch (error) {
+    notify(`Không thể xóa chat: ${error.message}`);
+  }
+}
+
 function renderKeys() {
   const list = $('#key-list');
   list.replaceChildren();
@@ -560,6 +670,23 @@ async function assignSeat(deviceId, seatId) {
   } catch (error) {
     notify(`Không cập nhật được chỗ ngồi: ${error.message}`);
     await fetchDevices();
+  }
+}
+
+async function deleteDevice(device) {
+  const label = device.hostname || device.id;
+  if (!window.confirm(`Xóa ${label} khỏi hệ thống?\n\nKey hiện tại sẽ bị thu hồi. Lịch sử chat và nhật ký vẫn được giữ lại.`)) return;
+  try {
+    await api(`/api/admin/devices/${encodeURIComponent(device.id)}`, { method: 'DELETE' });
+    const chatWindow = chatWindows.get(device.id);
+    if (chatWindow) {
+      chatWindow.remove();
+      chatWindows.delete(device.id);
+    }
+    notify(`Đã xóa ${label}`);
+    await Promise.all([fetchDevices(), fetchKeys(), fetchLogs()]);
+  } catch (error) {
+    notify(`Không thể xóa máy: ${error.message}`);
   }
 }
 
@@ -748,6 +875,11 @@ function connectEvents() {
   ['device-pending', 'device-activated', 'device-updated', 'device-key-updated', 'device-key-revoked'].forEach((eventName) => {
     source.addEventListener(eventName, () => Promise.all([fetchDevices(), fetchKeys()]).catch(console.error));
   });
+  source.addEventListener('device-deleted', () => Promise.all([fetchDevices(), fetchKeys()]).catch(console.error));
+  source.addEventListener('audit-created', () => {
+    if (!$('#tab-logs').hidden) fetchLogs().catch(console.error);
+  });
+  source.addEventListener('chat-deleted', () => fetchAlerts().catch(console.error));
   source.addEventListener('alert-acknowledged', () => fetchAlerts().catch(console.error));
   source.onerror = () => {
     $('#realtime-status').classList.add('disconnected');
@@ -765,6 +897,7 @@ function switchTab(tab) {
   document.querySelectorAll('.tab-panel').forEach((panel) => { panel.hidden = panel.id !== `tab-${tab}`; });
   history.replaceState(null, '', `#${tab}`);
   if (tab === 'map') requestAnimationFrame(() => mapView.initialized ? applyMapView() : fitMapView());
+  if (tab === 'logs') fetchLogs().catch((error) => notify(`Không thể tải nhật ký: ${error.message}`));
 }
 
 $('#login-form').addEventListener('submit', async (event) => {
@@ -798,6 +931,19 @@ $('#cancel-all-keys-btn').addEventListener('click', () => cancelKeyRequirement()
 $('#search-input').addEventListener('input', renderDevices);
 $('#status-filter').addEventListener('change', renderDevices);
 document.querySelectorAll('.tab-button').forEach((button) => button.addEventListener('click', () => switchTab(button.dataset.tab)));
+$('#refresh-logs-btn').addEventListener('click', () => fetchLogs());
+$('#log-action-filter').addEventListener('change', () => fetchLogs());
+let logSearchTimer;
+$('#log-search').addEventListener('input', () => {
+  clearTimeout(logSearchTimer);
+  logSearchTimer = setTimeout(() => fetchLogs().catch(console.error), 280);
+});
+$('#delete-device-chat-btn').addEventListener('click', () => {
+  const deviceId = $('#emergency-chat-device').value;
+  if (!deviceId) return notify('Hãy chọn máy cần xóa lịch sử chat');
+  emergencyDeleteChat('device', deviceId);
+});
+$('#delete-all-chat-btn').addEventListener('click', () => emergencyDeleteChat('all'));
 
 document.addEventListener('keydown', (event) => {
   if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
@@ -808,8 +954,8 @@ document.addEventListener('keydown', (event) => {
     $('#search-input').focus();
   } else if (event.key === 'Escape' && $('#seat-modal').open) {
     $('#seat-modal').close();
-  } else if (!editing && ['1', '2', '3', '4'].includes(event.key)) {
-    switchTab(['devices', 'map', 'keys', 'settings'][Number(event.key) - 1]);
+  } else if (!editing && ['1', '2', '3', '4', '5'].includes(event.key)) {
+    switchTab(['devices', 'map', 'keys', 'settings', 'logs'][Number(event.key) - 1]);
   }
 });
 
@@ -867,7 +1013,7 @@ setupMapInteractions();
     await api('/api/admin/session');
     showDashboard();
     await fetchKeywords();
-    const initialTab = ['devices', 'map', 'keys', 'settings'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'devices';
+    const initialTab = ['devices', 'map', 'keys', 'settings', 'logs'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'devices';
     switchTab(initialTab);
   } catch (_error) { showLogin(); }
 }());

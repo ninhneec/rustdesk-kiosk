@@ -97,7 +97,7 @@ pm2 startup systemd -u root --hp /root >/dev/null 2>&1 || true
 
 install -m 750 "${SERVER_DIR}/backup_to_gdrive.sh" /usr/local/sbin/rustdesk-kiosk-backup
 cat > /etc/cron.d/rustdesk-kiosk-backup <<'EOF'
-17 2 * * * root set -a; . /etc/rustdesk-kiosk-chat.env; set +a; /usr/local/sbin/rustdesk-kiosk-backup >> /var/log/rustdesk-kiosk-backup.log 2>&1
+0 0 * * * root set -a; . /etc/rustdesk-kiosk-chat.env; set +a; /usr/local/sbin/rustdesk-kiosk-backup >> /var/log/rustdesk-kiosk-backup.log 2>&1
 EOF
 chmod 644 /etc/cron.d/rustdesk-kiosk-backup
 

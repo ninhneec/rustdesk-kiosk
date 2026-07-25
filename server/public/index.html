@@ -46,6 +46,7 @@
           <button class="tab-button" data-tab="map" type="button"><span aria-hidden="true">⌘</span><b>Sơ đồ phòng</b><small>36 chỗ ngồi</small></button>
           <button class="tab-button" data-tab="keys" type="button"><span aria-hidden="true">◇</span><b>Key truy cập</b><small>Cấp và thu hồi</small></button>
           <button class="tab-button" data-tab="settings" type="button"><span aria-hidden="true">⚙</span><b>Cảnh báo</b><small>Từ khóa ưu tiên</small></button>
+          <button class="tab-button" data-tab="logs" type="button"><span aria-hidden="true">≡</span><b>Nhật ký</b><small>Mọi hoạt động</small></button>
         </nav>
         <div class="sidebar-help">
           <span>Hệ thống hỗ trợ</span>
@@ -161,6 +162,54 @@
           <textarea id="keywords-input" rows="4" placeholder="khẩn cấp, cứu, nguy hiểm, help, sos"></textarea>
           <div class="form-actions"><button class="button primary" type="submit">Lưu cấu hình</button><span id="settings-message" class="form-message"></span></div>
         </form>
+        <div class="danger-zone">
+          <div>
+            <p class="eyebrow danger-text">DANGER ZONE</p>
+            <h3>Xóa lịch sử chat khẩn cấp</h3>
+            <p>Không thể hoàn tác. Nhật ký thao tác xóa vẫn được giữ để truy vết.</p>
+          </div>
+          <div class="danger-zone-actions">
+            <select id="emergency-chat-device" aria-label="Chọn thiết bị cần xóa chat">
+              <option value="">Chọn một máy…</option>
+            </select>
+            <button id="delete-device-chat-btn" class="button danger" type="button">Xóa chat máy đã chọn</button>
+            <button id="delete-all-chat-btn" class="button danger solid-danger" type="button">Xóa toàn bộ chat</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-logs" class="tab-panel panel" hidden>
+        <div class="panel-heading toolbar-heading">
+          <div><p class="eyebrow">AUDIT LOG</p><h2>Hoạt động hệ thống</h2><small class="map-note">Lưu thao tác admin, thiết bị, key, chat và lỗi trong 180 ngày.</small></div>
+          <div class="toolbar">
+            <label class="search-control"><span aria-hidden="true">⌕</span><input id="log-search" type="search" placeholder="Tìm máy, hành động…"></label>
+            <label class="filter-control" aria-label="Lọc loại nhật ký">
+              <select id="log-action-filter">
+                <option value="all">Tất cả hoạt động</option>
+                <option value="admin.login">Đăng nhập</option>
+                <option value="device.register_or_heartbeat">Thiết bị cập nhật</option>
+                <option value="device.delete">Xóa thiết bị</option>
+                <option value="device.assign_seat">Gán chỗ ngồi</option>
+                <option value="device.require_key">Ép nhập key</option>
+                <option value="key.create">Tạo key</option>
+                <option value="key.update">Sửa key</option>
+                <option value="key.revoke">Thu hồi key</option>
+                <option value="chat.device_message">Chat từ máy</option>
+                <option value="chat.admin_message">Chat từ admin</option>
+                <option value="alert.acknowledge">Xử lý cảnh báo</option>
+                <option value="backup.success">Backup thành công</option>
+                <option value="backup.failed">Backup thất bại</option>
+              </select>
+            </label>
+            <button id="refresh-logs-btn" class="button ghost compact" type="button">Làm mới log</button>
+          </div>
+        </div>
+        <div class="table-wrap audit-table-wrap">
+          <table class="audit-table">
+            <thead><tr><th>Thời gian</th><th>Kết quả</th><th>Hành động</th><th>Người thực hiện</th><th>Đối tượng</th><th>Chi tiết</th></tr></thead>
+            <tbody id="audit-log-list"></tbody>
+          </table>
+        </div>
       </section>
       </main>
     </div>

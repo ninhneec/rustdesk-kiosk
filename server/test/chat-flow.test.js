@@ -299,4 +299,32 @@ test('admin-bound and self-destruct key chat flow', async () => {
   const recoveredActiveDevice = (await response.json()).find((device) => device.id === 'device-101');
   assert.equal(recoveredActiveDevice.seat_id, 'M01');
   assert.equal(recoveredActiveDevice.key_entry_required, 0);
+
+  response = await adminRequest('/api/admin/chat/messages', {
+    method: 'POST',
+    ...json({ channel: 'boss', device_id: 'device-101', body: 'Message to purge' }),
+  });
+  assert.equal(response.status, 201);
+  response = await adminRequest('/api/admin/chat/messages', {
+    method: 'DELETE',
+    ...json({ scope: 'device', device_id: 'device-101', confirmation: 'DELETE_CHAT' }),
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).deleted_messages > 0, true);
+
+  response = await adminRequest('/api/admin/devices/device-recovery', { method: 'DELETE' });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).deleted, true);
+  response = await adminRequest('/api/admin/devices');
+  assert.equal((await response.json()).some((device) => device.id === 'device-recovery'), false);
+
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  response = await adminRequest('/api/admin/audit-logs?limit=300');
+  assert.equal(response.status, 200);
+  const auditLogs = await response.json();
+  assert.equal(auditLogs.some((log) => log.action === 'admin.login' && log.success), true);
+  assert.equal(auditLogs.some((log) => log.action === 'device.delete' && log.success), true);
+  assert.equal(auditLogs.some((log) => log.action === 'chat.emergency_delete' && log.success), true);
+  assert.equal(auditLogs.some((log) => JSON.stringify(log).includes('temporary-proof')), false);
+  assert.equal(auditLogs.some((log) => JSON.stringify(log).includes('rotated-device-token')), false);
 });
