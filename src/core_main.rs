@@ -83,17 +83,16 @@ pub fn core_main() -> Option<Vec<String>> {
     if args.is_empty() {
         #[cfg(target_os = "linux")]
         let should_check_start_tray = crate::check_process("--server", false);
-        // We can use `crate::check_process("--server", false)` on Windows.
-        // Because `--server` process is the System user's process. We can't get the arguments in `check_process()`.
-        // We can assume that self service running means the server is also running on Windows.
+        // The tray owns the kiosk global hotkeys. Always ensure it is running
+        // when the Windows UI starts, including portable/non-service launches.
         #[cfg(target_os = "windows")]
-        let should_check_start_tray = crate::check_process("--server", false);
+        let should_check_start_tray = true;
         if should_check_start_tray && !crate::check_process("--tray", true) {
             #[cfg(target_os = "linux")]
             hbb_common::allow_err!(crate::platform::check_autostart_config());
             hbb_common::allow_err!(crate::run_me(vec!["--tray"]));
             #[cfg(target_os = "windows")]
-            {}
+            hbb_common::allow_err!(crate::run_me(vec!["--tray"]));
         }
     }
     #[cfg(not(debug_assertions))]
