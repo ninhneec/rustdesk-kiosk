@@ -382,15 +382,32 @@ test('admin-bound and self-destruct key chat flow', async () => {
   const recoveredActiveDevice = (await response.json()).find((device) => device.id === 'device-101');
   assert.equal(recoveredActiveDevice.seat_id, 'M01');
   assert.equal(recoveredActiveDevice.key_entry_required, 0);
+  response = await adminRequest('/api/admin/device-tags', {
+    method: 'POST',
+    ...json({ name: 'VIP', color: '#ef4444' }),
+  });
+  assert.equal(response.status, 201);
+  const createdTag = await response.json();
   response = await adminRequest('/api/admin/devices/device-101/tag', {
     method: 'POST',
-    ...json({ tag: 'VIP', color: '#ef4444' }),
+    ...json({ tag: 'VIP' }),
   });
   assert.equal(response.status, 200);
   response = await adminRequest('/api/admin/devices');
   const taggedDevice = (await response.json()).find((device) => device.id === 'device-101');
   assert.equal(taggedDevice.device_tag, 'VIP');
   assert.equal(taggedDevice.tag_color, '#ef4444');
+  response = await adminRequest(`/api/admin/device-tags/${createdTag.id}`, {
+    method: 'PUT',
+    ...json({ name: 'VIP đỏ', color: '#dc2626' }),
+  });
+  assert.equal(response.status, 200);
+  response = await adminRequest('/api/admin/devices');
+  const renamedTagDevice = (await response.json()).find((device) => device.id === 'device-101');
+  assert.equal(renamedTagDevice.device_tag, 'VIP đỏ');
+  assert.equal(renamedTagDevice.tag_color, '#dc2626');
+  response = await adminRequest('/api/admin/device-tags');
+  assert.equal((await response.json()).find((tag) => tag.id === createdTag.id).device_count, 1);
 
   response = await adminRequest('/api/admin/device-groups', {
     method: 'POST',
@@ -418,6 +435,10 @@ test('admin-bound and self-destruct key chat flow', async () => {
   assert.equal(response.status, 200);
   response = await adminRequest('/api/admin/devices');
   assert.equal((await response.json()).find((device) => device.id === 'device-101').group_id, null);
+  response = await adminRequest(`/api/admin/device-tags/${createdTag.id}`, { method: 'DELETE' });
+  assert.equal(response.status, 200);
+  response = await adminRequest('/api/admin/devices');
+  assert.equal((await response.json()).find((device) => device.id === 'device-101').device_tag, '');
 
   response = await adminRequest('/api/admin/chat/messages', {
     method: 'POST',

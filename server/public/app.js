@@ -2,7 +2,7 @@
 
 const $ = (selector) => document.querySelector(selector);
 const state = {
-  devices: [], alerts: [], keys: [], groups: [], logs: [], healthHistory: [],
+  devices: [], alerts: [], keys: [], groups: [], tags: [], logs: [], healthHistory: [],
   eventSource: null, refreshTimer: null, healthTimer: null,
   settings: {
     dashboard_refresh_seconds: 20, online_threshold_minutes: 5, health_refresh_seconds: 15,
@@ -141,6 +141,12 @@ async function fetchKeys() {
 async function fetchGroups() {
   state.groups = await api('/api/admin/device-groups');
   renderGroups();
+  renderDevices();
+}
+
+async function fetchTags() {
+  state.tags = await api('/api/admin/device-tags');
+  renderTags();
   renderDevices();
 }
 
@@ -460,7 +466,7 @@ async function fetchLogs() {
 async function refreshAll({ quiet = false } = {}) {
   clearTimeout(state.refreshTimer);
   try {
-    await Promise.all([fetchDevices(), fetchAlerts(), fetchKeys(), fetchGroups()]);
+    await Promise.all([fetchDevices(), fetchAlerts(), fetchKeys(), fetchGroups(), fetchTags()]);
     if (!quiet) notify('Dữ liệu đã được cập nhật');
   } catch (error) {
     console.error(error);
@@ -542,18 +548,22 @@ function renderDevices() {
     const machine = element('div', 'device-name');
     machine.append(element('strong', '', device.hostname || 'Máy chưa đặt tên'));
     machine.append(element('small', '', active ? (device.key_label || 'Đã kích hoạt') : (forcedKey ? 'Máy đang hiện ô nhập key' : 'Chờ admin gán key')));
-    if (device.device_tag) {
-      const deviceTag = element('span', 'device-color-tag', device.device_tag);
-      deviceTag.style.setProperty('--tag-color', device.tag_color || '#4ed8c3');
-      machine.append(deviceTag);
-    }
+    const taxonomy = element('div', 'device-taxonomy-controls');
     const groupSelect = element('select', 'device-group-select');
     groupSelect.add(new Option('Không nhóm', ''));
     state.groups.forEach((group) => groupSelect.add(new Option(group.name, String(group.id))));
     groupSelect.value = device.group_id ? String(device.group_id) : '';
     groupSelect.title = 'Nhóm quản lý';
     groupSelect.addEventListener('change', () => assignDeviceGroup(device.id, groupSelect.value));
-    machine.append(groupSelect);
+    const tagSelect = element('select', 'device-group-select device-tag-select');
+    tagSelect.add(new Option('Không tag', ''));
+    state.tags.forEach((tag) => tagSelect.add(new Option(`● ${tag.name}`, tag.name)));
+    tagSelect.value = device.device_tag || '';
+    tagSelect.title = 'Tag màu định danh';
+    tagSelect.style.setProperty('--tag-color', device.tag_color || '#7890a1');
+    tagSelect.addEventListener('change', () => assignDeviceTag(device.id, tagSelect.value));
+    taxonomy.append(groupSelect, tagSelect);
+    machine.append(taxonomy);
     machineCell.append(machine);
 
     const idCell = element('td', 'mono', device.id);
@@ -602,7 +612,6 @@ function renderDevices() {
       actions.append(chatButton);
     }
     const connect = element('a', 'button compact ghost', 'Kết nối');
-    actions.append(actionButton('Tag', 'ghost', () => editDeviceTag(device)));
     connect.href = `rustdesk://connect?id=${encodeURIComponent(device.id)}`;
     actions.append(connect);
     actions.append(actionButton('Xóa', 'danger', () => deleteDevice(device)));
@@ -1086,23 +1095,16 @@ async function assignSeat(deviceId, seatId) {
   }
 }
 
-async function editDeviceTag(device) {
-  const tag = window.prompt('Tên tag ngắn (để trống để xóa):', device.device_tag || '');
-  if (tag === null) return;
-  const color = tag.trim()
-    ? window.prompt('Màu tag dạng HEX:', device.tag_color || '#4ed8c3')
-    : '#4ed8c3';
-  if (color === null) return;
-  if (!/^#[0-9a-f]{6}$/i.test(color)) return notify('Màu tag phải có dạng #RRGGBB');
+async function assignDeviceTag(deviceId, tag) {
   try {
-    await api(`/api/admin/devices/${encodeURIComponent(device.id)}/tag`, {
+    await api(`/api/admin/devices/${encodeURIComponent(deviceId)}/tag`, {
       method: 'POST',
-      body: JSON.stringify({ tag: tag.trim(), color }),
+      body: JSON.stringify({ tag }),
     });
-    notify(tag.trim() ? 'Đã cập nhật tag máy' : 'Đã xóa tag máy');
-    await fetchDevices();
+    notify(tag ? 'Đã gán tag cho máy' : 'Đã gỡ tag khỏi máy');
+    await Promise.all([fetchDevices(), fetchTags()]);
   } catch (error) {
-    notify(`Không thể cập nhật tag: ${error.message}`);
+    notify(`Không thể gán tag: ${error.message}`);
   }
 }
 
@@ -1128,6 +1130,51 @@ function renderGroups() {
     item.append(dot, info, actions);
     list.append(item);
   });
+}
+
+function renderTags() {
+  const list = $('#device-tag-list');
+  if (!list) return;
+  list.replaceChildren();
+  if (!state.tags.length) {
+    list.append(element('p', 'empty-health', 'Chưa có tag màu.'));
+    return;
+  }
+  state.tags.forEach((tag) => {
+    const item = element('article', 'device-group-card');
+    const dot = element('i', 'group-color-dot');
+    dot.style.background = tag.color;
+    const info = element('div');
+    info.append(element('strong', '', tag.name), element('small', '', `${tag.device_count} máy đang gắn`));
+    const actions = element('div', 'row-actions');
+    actions.append(
+      actionButton('Sửa', 'ghost', () => editDeviceTagCatalog(tag)),
+      actionButton('Xóa', 'danger', () => deleteDeviceTagCatalog(tag)),
+    );
+    item.append(dot, info, actions);
+    list.append(item);
+  });
+}
+
+async function editDeviceTagCatalog(tag) {
+  const name = window.prompt('Tên tag:', tag.name);
+  if (!name?.trim()) return;
+  const color = window.prompt('Màu tag dạng HEX:', tag.color);
+  if (!color || !/^#[0-9a-f]{6}$/i.test(color)) return notify('Màu tag phải có dạng #RRGGBB');
+  try {
+    await api(`/api/admin/device-tags/${tag.id}`, {
+      method: 'PUT', body: JSON.stringify({ name: name.trim(), color }),
+    });
+    await Promise.all([fetchTags(), fetchDevices()]);
+  } catch (error) { notify(`Không thể sửa tag: ${error.message}`); }
+}
+
+async function deleteDeviceTagCatalog(tag) {
+  if (!window.confirm(`Xóa tag “${tag.name}”? Tag này sẽ được gỡ khỏi mọi máy đang dùng.`)) return;
+  try {
+    await api(`/api/admin/device-tags/${tag.id}`, { method: 'DELETE' });
+    await Promise.all([fetchTags(), fetchDevices()]);
+  } catch (error) { notify(`Không thể xóa tag: ${error.message}`); }
 }
 
 async function assignDeviceGroup(deviceId, groupId) {
@@ -1369,6 +1416,7 @@ function connectEvents() {
     source.addEventListener(eventName, () => Promise.all([fetchDevices(), fetchKeys()]).catch(console.error));
   });
   source.addEventListener('device-group-updated', () => Promise.all([fetchGroups(), fetchDevices()]).catch(console.error));
+  source.addEventListener('device-tag-updated', () => Promise.all([fetchTags(), fetchDevices()]).catch(console.error));
   source.addEventListener('device-deleted', () => Promise.all([fetchDevices(), fetchKeys()]).catch(console.error));
   source.addEventListener('audit-created', () => {
     if (!$('#tab-logs').hidden) fetchLogs().catch(console.error);
@@ -1469,6 +1517,20 @@ $('#device-group-form').addEventListener('submit', async (event) => {
     notify('Đã tạo nhóm máy');
     await fetchGroups();
   } catch (error) { notify(`Không thể tạo nhóm: ${error.message}`); }
+});
+$('#device-tag-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const name = $('#device-tag-name').value.trim();
+  const color = $('#device-tag-color').value;
+  if (!name) return notify('Hãy nhập tên tag');
+  try {
+    await api('/api/admin/device-tags', {
+      method: 'POST', body: JSON.stringify({ name, color }),
+    });
+    $('#device-tag-name').value = '';
+    notify('Đã tạo tag màu');
+    await fetchTags();
+  } catch (error) { notify(`Không thể tạo tag: ${error.message}`); }
 });
 document.querySelectorAll('.tab-button').forEach((button) => button.addEventListener('click', () => switchTab(button.dataset.tab)));
 $('#refresh-logs-btn').addEventListener('click', () => fetchLogs());

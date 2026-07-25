@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07111f">
   <title>RustDesk Kiosk · Trung tâm hỗ trợ</title>
   <meta name="description" content="Bảng điều phối thiết bị và hỗ trợ RustDesk Kiosk P204">
-  <link rel="stylesheet" href="style.css?v=ops-dashboard-8">
+  <link rel="stylesheet" href="style.css?v=ops-dashboard-9">
 </head>
 <body>
   <section id="login-view" class="auth-view">
@@ -42,7 +42,7 @@
           <div><strong>P204</strong><small>Phòng máy đang quản lý</small></div>
         </div>
         <nav class="section-tabs" aria-label="Khu vực quản lý">
-          <button class="tab-button" data-tab="groups" type="button"><span aria-hidden="true">◎</span><b>Nhóm máy</b><small>Tạo và phân loại</small></button>
+          <button class="tab-button" data-tab="groups" type="button"><span aria-hidden="true">◎</span><b>Tag & Nhóm</b><small>Phân loại thiết bị</small></button>
           <button class="tab-button active" data-tab="devices" type="button"><span aria-hidden="true">◫</span><b>Thiết bị</b><small>Máy và trạng thái</small></button>
           <button class="tab-button" data-tab="map" type="button"><span aria-hidden="true">⌘</span><b>Sơ đồ phòng</b><small>36 chỗ ngồi</small></button>
           <button class="tab-button" data-tab="keys" type="button"><span aria-hidden="true">◇</span><b>Key truy cập</b><small>Cấp và thu hồi</small></button>
@@ -140,6 +140,18 @@
         <article class="panel">
           <div class="panel-heading"><div><p class="eyebrow">DANH SÁCH</p><h2>Các nhóm hiện có</h2></div></div>
           <div id="device-group-list" class="device-group-list"></div>
+        </article>
+        <article class="panel">
+          <div class="panel-heading"><div><p class="eyebrow">TAG MÀU</p><h2>Tạo thẻ định danh</h2></div></div>
+          <form id="device-tag-form" class="stack-form">
+            <label>Tên tag<input id="device-tag-name" maxlength="24" placeholder="Ví dụ: VIP, Bảo trì, Thi kỹ năng"></label>
+            <label>Màu tag<input id="device-tag-color" type="color" value="#f4b75d"></label>
+            <button class="button primary wide" type="submit">Tạo tag</button>
+          </form>
+        </article>
+        <article class="panel">
+          <div class="panel-heading"><div><p class="eyebrow">THƯ VIỆN TAG</p><h2>Tag đang sử dụng</h2></div></div>
+          <div id="device-tag-list" class="device-group-list"></div>
         </article>
       </section>
 
@@ -352,6 +364,6 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <div id="chart-tooltip" class="chart-tooltip" role="tooltip" hidden></div>
-  <script src="app.js?v=p204-map-18"></script>
+  <script src="app.js?v=p204-map-19"></script>
 </body>
 </html>

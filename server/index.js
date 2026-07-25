@@ -234,6 +234,15 @@ async function initializeDatabase() {
     sort_order INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`);
+  await dbRun(`CREATE TABLE IF NOT EXISTS device_tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    color TEXT NOT NULL DEFAULT '#4ed8c3',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await dbRun(`INSERT OR IGNORE INTO device_tags (name, color)
+               SELECT DISTINCT device_tag, COALESCE(NULLIF(tag_color, ''), '#4ed8c3')
+                 FROM devices WHERE device_tag IS NOT NULL AND device_tag <> ''`);
 
   await dbRun(`CREATE TABLE IF NOT EXISTS chat_messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -340,6 +349,9 @@ function auditAction(method, routePath) {
     [/POST \/api\/admin\/device-groups$/, 'group.create'],
     [/PUT \/api\/admin\/device-groups\/[^/]+$/, 'group.update'],
     [/DELETE \/api\/admin\/device-groups\/[^/]+$/, 'group.delete'],
+    [/POST \/api\/admin\/device-tags$/, 'tag.create'],
+    [/PUT \/api\/admin\/device-tags\/[^/]+$/, 'tag.update'],
+    [/DELETE \/api\/admin\/device-tags\/[^/]+$/, 'tag.delete'],
     [/POST \/api\/admin\/devices\/require-key$/, 'device.require_key'],
     [/POST \/api\/admin\/devices\/cancel-key-requirement$/, 'device.cancel_key_requirement'],
     [/POST \/api\/admin\/device-keys$/, 'key.create'],
@@ -986,12 +998,73 @@ app.post('/api/admin/devices/:id/group', requireAdmin, requireSameOrigin, async 
   }
 });
 
+app.get('/api/admin/device-tags', requireAdmin, async (_req, res) => {
+  try {
+    res.json(await dbAll(
+      `SELECT t.id, t.name, t.color, COUNT(d.id) AS device_count
+         FROM device_tags t LEFT JOIN devices d ON d.device_tag = t.name
+        GROUP BY t.id ORDER BY t.name COLLATE NOCASE`,
+    ));
+  } catch (_error) {
+    fail(res, 500, 'Database error');
+  }
+});
+
+app.post('/api/admin/device-tags', requireAdmin, requireSameOrigin, async (req, res) => {
+  const name = text(req.body.name, 24);
+  const color = /^#[0-9a-f]{6}$/i.test(req.body.color || '') ? req.body.color.toLowerCase() : '#4ed8c3';
+  if (!name) return fail(res, 400, 'Tên tag không hợp lệ');
+  try {
+    const result = await dbRun('INSERT INTO device_tags (name, color) VALUES (?, ?)', [name, color]);
+    emitAdminEvent('device-tag-updated', { tag_id: result.lastID });
+    res.status(201).json({ id: result.lastID, name, color });
+  } catch (error) {
+    if (error?.code === 'SQLITE_CONSTRAINT') return fail(res, 409, 'Tên tag đã tồn tại');
+    fail(res, 500, 'Database error');
+  }
+});
+
+app.put('/api/admin/device-tags/:id', requireAdmin, requireSameOrigin, async (req, res) => {
+  const tagId = Math.max(0, Number.parseInt(req.params.id, 10) || 0);
+  const name = text(req.body.name, 24);
+  const color = /^#[0-9a-f]{6}$/i.test(req.body.color || '') ? req.body.color.toLowerCase() : null;
+  if (!tagId || !name || !color) return fail(res, 400, 'Dữ liệu tag không hợp lệ');
+  try {
+    const existing = await dbGet('SELECT name FROM device_tags WHERE id = ?', [tagId]);
+    if (!existing) return fail(res, 404, 'Tag not found');
+    await dbRun('UPDATE device_tags SET name = ?, color = ? WHERE id = ?', [name, color, tagId]);
+    await dbRun('UPDATE devices SET device_tag = ?, tag_color = ? WHERE device_tag = ?', [name, color, existing.name]);
+    emitAdminEvent('device-tag-updated', { tag_id: tagId });
+    res.json({ id: tagId, name, color });
+  } catch (error) {
+    if (error?.code === 'SQLITE_CONSTRAINT') return fail(res, 409, 'Tên tag đã tồn tại');
+    fail(res, 500, 'Database error');
+  }
+});
+
+app.delete('/api/admin/device-tags/:id', requireAdmin, requireSameOrigin, async (req, res) => {
+  const tagId = Math.max(0, Number.parseInt(req.params.id, 10) || 0);
+  if (!tagId) return fail(res, 400, 'Invalid tag id');
+  try {
+    const existing = await dbGet('SELECT name FROM device_tags WHERE id = ?', [tagId]);
+    if (!existing) return fail(res, 404, 'Tag not found');
+    await dbRun("UPDATE devices SET device_tag = '', tag_color = NULL WHERE device_tag = ?", [existing.name]);
+    await dbRun('DELETE FROM device_tags WHERE id = ?', [tagId]);
+    emitAdminEvent('device-tag-updated', { tag_id: tagId, deleted: true });
+    res.json({ deleted: true });
+  } catch (_error) {
+    fail(res, 500, 'Database error');
+  }
+});
+
 app.post('/api/admin/devices/:id/tag', requireAdmin, requireSameOrigin, async (req, res) => {
   const id = deviceId(req.params.id);
   const tag = text(req.body.tag, 24) || '';
-  const color = /^#[0-9a-f]{6}$/i.test(req.body.color || '') ? req.body.color.toLowerCase() : '#4ed8c3';
   if (!id) return fail(res, 400, 'Invalid device ID');
   try {
+    const catalogTag = tag ? await dbGet('SELECT name, color FROM device_tags WHERE name = ?', [tag]) : null;
+    if (tag && !catalogTag) return fail(res, 404, 'Tag not found');
+    const color = catalogTag?.color || '#4ed8c3';
     const result = await dbRun(
       'UPDATE devices SET device_tag = ?, tag_color = ? WHERE id = ?',
       [tag, color, id],

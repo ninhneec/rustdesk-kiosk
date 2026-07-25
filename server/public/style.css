@@ -868,6 +868,8 @@ tbody tr:nth-child(even) { background: rgba(255,255,255,.012); }
   padding: 4px 7px;
   font-size: 9px;
 }
+.device-taxonomy-controls { display: flex; flex-wrap: wrap; gap: 5px; }
+.device-tag-select { border-left: 3px solid var(--tag-color, #7890a1); }
 @media (max-width: 900px) {
   .groups-layout { grid-template-columns: 1fr; }
 }
