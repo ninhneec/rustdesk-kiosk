@@ -459,8 +459,7 @@ function renderMap() {
       const deskAlerts = device ? state.alerts.filter((alert) => alert.device_id === device.id) : [];
       const urgentAlerts = deskAlerts.filter((alert) => alert.priority === 'urgent');
       const status = !device ? '' : !isActive(device) ? 'pending assigned' : isOnline(device) ? 'online assigned' : 'offline assigned';
-      const alertStatus = urgentAlerts.length ? 'has-urgent-alert' : deskAlerts.length ? 'has-chat-alert' : '';
-      const desk = element('button', `desk ${index % 2 === 0 ? 'upper' : 'lower'} ${status} ${alertStatus}`.trim());
+      const desk = element('button', `desk ${index % 2 === 0 ? 'upper' : 'lower'} ${status}`.trim());
       desk.type = 'button';
       desk.title = `${roomRow.label} · Số ảnh ${roomRow.photo[index]} · Ghế ${seat}`;
 
@@ -475,7 +474,11 @@ function renderMap() {
       const deviceName = element('span', 'desk-device', device ? (device.hostname || device.id) : 'Chưa gán máy');
       desk.append(equipment, codes, deviceName);
       if (deskAlerts.length) {
-        const badge = element('span', `desk-alert-badge ${urgentAlerts.length ? 'urgent' : ''}`, String(Math.min(deskAlerts.length, 99)));
+        const badge = element('span', `desk-alert-badge ${urgentAlerts.length ? 'urgent' : ''}`);
+        badge.append(
+          element('span', 'desk-alert-icon', '●'),
+          element('strong', 'desk-alert-count', deskAlerts.length > 99 ? '99+' : String(deskAlerts.length)),
+        );
         badge.title = urgentAlerts.length
           ? `${urgentAlerts.length} tin khẩn · ${deskAlerts.length} tin chưa xử lý`
           : `${deskAlerts.length} tin chưa xử lý`;

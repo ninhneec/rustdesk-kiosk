@@ -701,33 +701,53 @@ tbody tr:nth-child(even) { background: rgba(255,255,255,.012); }
 .desk-alert-badge {
   position: absolute;
   z-index: 5;
-  top: -10px;
-  right: -10px;
-  min-width: 23px;
-  height: 23px;
-  display: grid;
-  place-items: center;
-  padding: 0 5px;
+  top: -9px;
+  left: -9px;
+  min-width: 31px;
+  height: 21px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 6px;
   border: 2px solid #0d1a26;
-  border-radius: 8px;
-  color: #08131d;
-  background: #f3c653;
-  box-shadow: 0 5px 16px rgba(243, 198, 83, .35);
+  border-radius: 999px;
+  color: #fff;
+  background: #3978e8;
+  box-shadow: 0 5px 16px rgba(57, 120, 232, .38);
   font-family: "SFMono-Regular", Consolas, monospace;
   font-size: 10px;
   font-weight: 900;
   line-height: 1;
+  pointer-events: none;
+}
+.desk-alert-icon {
+  position: relative;
+  width: 9px;
+  height: 8px;
+  border: 1.5px solid currentColor;
+  border-radius: 3px;
+  color: transparent;
+}
+.desk-alert-icon::after {
+  content: "";
+  position: absolute;
+  left: 1px;
+  bottom: -3px;
+  width: 3px;
+  height: 3px;
+  border-left: 1.5px solid #fff;
+  transform: skewY(-35deg);
+}
+.desk-alert-count {
+  color: #fff;
+  font: inherit;
 }
 .desk-alert-badge.urgent {
   color: #fff;
   background: #ef5368;
   box-shadow: 0 0 0 0 rgba(239, 83, 104, .55), 0 7px 20px rgba(239, 83, 104, .42);
   animation: urgent-desk-ping 1.25s ease-out infinite;
-}
-.desk.has-chat-alert { border-color: #d8ae45; }
-.desk.has-urgent-alert {
-  border-color: #ef5368;
-  box-shadow: 0 0 0 3px rgba(239, 83, 104, .12), 0 8px 24px rgba(239, 83, 104, .18);
 }
 @keyframes urgent-desk-ping {
   0% { box-shadow: 0 0 0 0 rgba(239, 83, 104, .55), 0 7px 20px rgba(239, 83, 104, .42); }
