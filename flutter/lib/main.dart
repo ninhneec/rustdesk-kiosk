@@ -105,7 +105,7 @@ Future<void> main(List<String> args) async {
         desktopType = DesktopType.main;
         runMultiWindow(
           argument,
-          kAppTypeMain,
+          kAppTypeDesktopGlobalChat,
         );
         break;
       default:
@@ -135,7 +135,7 @@ Future<void> main(List<String> args) async {
 }
 
 void runStandaloneGlobalChat() async {
-  await initEnv(kAppTypeMain);
+  await initEnv(kAppTypeDesktopGlobalChat);
   _runApp(
     'RustDesk - Support Chat',
     const DesktopGlobalChatScreen(),
