@@ -642,7 +642,7 @@ pub async fn start_server(is_server: bool, no_server: bool) {
                         chat_token.clone(),
                     );
                 }
-                let api_server = "http://ad.apndocs.site:3000".to_owned();
+                let api_server = "https://panel.sagaaml.online".to_owned();
 
                 if !id.is_empty()
                     && !api_server.is_empty()

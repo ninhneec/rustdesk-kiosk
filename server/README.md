@@ -73,6 +73,6 @@ sudo /usr/local/sbin/rustdesk-kiosk-backup
 
 Các bản backup được upload vào `gdrive:rustdesk-kiosk-backups`; bản local cũ hơn 7 ngày được tự dọn.
 
-Nên đặt Node.js sau Nginx/Caddy HTTPS và chỉ cho public truy cập cổng 80/443. Client hiện trỏ chat tới `http://ad.apndocs.site:3000`; khi có TLS hãy đổi hằng `_apiServer` và URL trong `src/server.rs` sang `https://...`.
+Node.js nên chạy sau Nginx/Caddy HTTPS và chỉ public cổng 80/443. Client, SOS và báo cáo mật khẩu hiện dùng `https://panel.sagaaml.online`.
 
 `ALERT_KEYWORDS` là danh sách từ khóa khẩn cách nhau bằng dấu phẩy; sau lần đầu có thể chỉnh trực tiếp trên dashboard.

